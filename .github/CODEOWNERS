@@ -1,0 +1,17 @@
+# Replace every placeholder below with a real GitHub user or team before enforcing rules.
+
+/backend/ @DialedB
+/ai/ @KarimWalid805
+/saferag/ @DialedB
+
+# Shared contract changes affect several teams and require coordinated review.
+/shared/ @DialedB @KarimWalid805
+
+/infra/ @DialedB @KarimWalid805
+/tests/ @DialedB
+/.github/ @DialedB
+/AGENTS.md @DialedB @KarimWalid805
+/CONTRIBUTING.md @DialedB
+/README.md @DialedB @KarimWalid805
+/pyproject.toml @DialedB
+/docker-compose.yml @DialedB @KarimWalid805

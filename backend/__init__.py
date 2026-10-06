@@ -1,0 +1,1 @@
+"""CardioSmart backend application package."""
