@@ -1,0 +1,25 @@
+# Local credentials and Neon CLI configuration
+.env
+.env.*
+!.env.example
+.neon
+.neon/
+neon.ts
+neon.json
+neon.lock
+neon.config.*
+
+# Local documents and source corpora
+docs/
+*.pdf
+RAG_Documents.txt
+
+# Local environments and generated artifacts
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+db/
+*.sqlite
+*.sqlite3
