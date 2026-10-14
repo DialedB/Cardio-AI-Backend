@@ -20,8 +20,10 @@ and CODEOWNER approval.
 - **NEVER work directly on `main`.**
 - **NEVER push directly to `main`.**
 - **EVERY change requires a PR.**
-- PR authors **DO NOT merge their own PRs**.
-- The appropriate CODEOWNER reviews and merges the PR.
+- PR authors who are not an appropriate CODEOWNER **DO NOT merge their own PRs**.
+- A CODEOWNER author may self-review and merge their own PR after required automated checks
+  pass. No additional human approval is required.
+- Authors must not submit a formal approval on their own PRs or bypass required checks.
 - Do not modify another team's owned area without coordinating with its CODEOWNER.
 - Review and update `README.md` only after the code is correct and relevant tests pass.
 - Never commit secrets, passwords, tokens, private keys, or a local `.env` file.
@@ -306,8 +308,12 @@ another look or when you need clarification.
 
 ## 14. CODEOWNER review and merge
 
-The appropriate CODEOWNER performs the final review and merges the PR. PR authors must not
-approve or merge their own PRs. Do not bypass required checks or CODEOWNER review.
+An appropriate CODEOWNER performs the final ownership review. When the author is an appropriate
+CODEOWNER, they may self-review and merge their own PR after required automated checks pass; no
+additional human approval is required. GitHub does not allow authors to submit a formal approval
+on their own PRs, and this policy does not require one. Authors who are not an appropriate
+CODEOWNER must obtain CODEOWNER review and must not merge their own PRs. Do not bypass required
+checks.
 
 After the PR is merged, return your local repository to `main` and update it:
 

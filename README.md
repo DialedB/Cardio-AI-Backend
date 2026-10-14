@@ -194,8 +194,9 @@ GitHub Actions runs the same lint and test commands for pull requests.
 
 Never work on or push directly to `main`. Every change uses a new branch and a pull request.
 PR authors review their diff, run relevant tests, and update this README only after the code
-and tests are correct. The appropriate CODEOWNER reviews and merges the PR; authors do not
-merge their own changes.
+and tests are correct. Authors who are not an appropriate CODEOWNER do not merge their own
+changes. A CODEOWNER author may self-review and merge after required automated checks pass; no
+additional human approval is required.
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for beginner-friendly commands and the full workflow.
 Agents must also follow [`AGENTS.md`](AGENTS.md), including subsystem ownership boundaries and
