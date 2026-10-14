@@ -47,5 +47,6 @@ If an agent was used, summarize its contribution and any tests it could not run:
 - [ ] I did not directly modify another team's subsystem without coordination
 - [ ] This PR is ready for CODEOWNER review
 
-PR authors must not merge their own pull requests. The appropriate CODEOWNER reviews and
-merges the PR.
+Authors who are not an appropriate CODEOWNER must obtain CODEOWNER review and must not merge
+their own pull requests. A CODEOWNER author may self-review and merge after required automated
+checks pass; no additional human approval is required.
