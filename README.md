@@ -180,7 +180,7 @@ the environment.
 Install development dependencies, then run lint and all backend-owned tests:
 
 ```bash
-ruff check .
+ruff check backend saferag shared tests
 pytest
 ```
 

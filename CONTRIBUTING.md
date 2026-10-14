@@ -136,7 +136,7 @@ your assigned area.
 For backend and SafeRAG changes, run:
 
 ```bash
-ruff check .
+ruff check backend saferag shared tests
 pytest
 ```
 
@@ -167,7 +167,7 @@ diff. Rerun the failed check and then the complete relevant test set:
 
 ```bash
 git diff
-ruff check .
+ruff check backend saferag shared tests
 pytest
 ```
 
@@ -292,7 +292,7 @@ the relevant tests, commit, and push:
 ```bash
 git status
 git diff
-ruff check .
+ruff check backend saferag shared tests
 pytest
 git add .
 git diff --staged
@@ -348,7 +348,7 @@ should remain. Remove the markers, then review and test the combined result:
 git add path/to/resolved-file
 git status
 git commit -m "chore(repo): resolve merge conflicts"
-ruff check .
+ruff check backend saferag shared tests
 pytest
 git push
 ```
