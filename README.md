@@ -159,6 +159,12 @@ Build and start the FastAPI backend and PostgreSQL:
 docker compose up --build
 ```
 
+Apply database migrations from the project root:
+
+```bash
+docker compose run --rm --build -v "$PWD:/app" backend alembic upgrade head
+```
+
 Check the service:
 
 ```bash
