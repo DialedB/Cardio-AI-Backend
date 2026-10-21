@@ -7,4 +7,5 @@ langchain-text-splitters
 openai
 pydantic
 python-dotenv
-rank-bm25
+pypdf
+psycopg[binary]

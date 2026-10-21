@@ -87,12 +87,82 @@ database. No domain schema or migrations exist yet.
 
 ## AI / RAG
 
-`ai/` belongs entirely to the AI team and is intentionally empty after this bootstrap. No RAG
-interfaces, ingestion, chunking, embeddings, retrieval, reranking, generation, critic models,
-vector storage, configuration, or tests have been created there.
+The `ai/` directory contains a standalone PDF ingestion and retrieval-augmented
+generation (RAG) command-line pipeline. It uses Neon Postgres for stored chunks,
+embeddings, and full-text retrieval. It runs separately from the FastAPI backend:
+`POST /api/query` is still a placeholder and does not call this pipeline.
 
-The AI team can build independently against the coordinated contract in
-`shared/contracts/rag.py`. Changes to that contract require backend and AI codeowner review.
+### Components
+
+- `ai/ingestion_pipeline.py` loads PDF files, splits them into chunks, creates
+  embeddings, and stores them in the configured Neon PGVector collection.
+- `ai/full_text_retriever.py` searches chunk text using Postgres full-text
+  search and returns ranked documents.
+- `ai/RAG_Pipeline.py` combines full-text and vector retrieval, generates
+  query variations, merges results with reciprocal-rank fusion, and creates
+  answers using retrieved source excerpts.
+- `ai/settings.py` provides the shared model, chunking, collection, and database
+  settings.
+- `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
+  by the full-text retriever.
+
+### Ingestion behavior
+
+The ingestion script reads top-level PDF files from `ai/docs/` in filename
+order. PDFs and the `docs/` directory are ignored by Git, so add source PDFs
+locally.
+
+Each loaded PDF page is split into chunks. The default chunk size is 1,000
+characters with 100 characters of overlap. These values can be changed with
+`RAG_CHUNK_SIZE` and `RAG_CHUNK_OVERLAP`.
+
+Chunk IDs are based on the collection name, the PDF path relative to `ai/docs/`,
+and a SHA-256 hash of the chunk text. They do not depend on chunk position.
+Unchanged IDs already in the collection are skipped. Repeated identical chunks
+within one source are collapsed; identical text in different source files
+remains stored as separate chunks, though its embedding is reused within an
+ingestion run.
+
+By default, ingestion deletes rows in the collection that are not present in the
+current PDF input. Treat the configured collection as belonging to this corpus
+when using the default behavior. Pass `--no-prune` to retain rows absent from
+the current input.
+
+`--dry-run` reports the current, new, unchanged, and stale chunk counts and
+estimates embedding tokens without requesting embeddings or writing data. It
+still connects to Neon to look up existing chunk IDs. If `tiktoken` is not
+available, the token estimate is approximate.
+
+### Neon full-text search schema
+
+The full-text retriever queries the generated `search_vector` column on
+`langchain_pg_embedding`. The SQL migration adds that column using the English
+text-search configuration and creates a GIN index for searching it. PostgreSQL
+keeps the generated column synchronized with chunk text.
+
+The SQL migration is tracked at `ai/migrations/0001_add_full_text_search.sql`. On a normal ingestion
+run, PGVector initializes its tables and the pipeline applies this idempotent migration before
+embedding or writing chunks. It creates a missing `search_vector` generated column and GIN index;
+existing objects are left in place. `--dry-run` does not apply the migration. RAG startup checks
+that the table, column, and index exist and reports an actionable error if they do not.
+
+For a manual setup or recovery, you can still run the migration from the repository root with `psql`:
+
+```bash
+psql "<Neon connection string>" \
+  -f ai/migrations/0001_add_full_text_search.sql
+```
+
+### AI/RAG setup
+
+Install the AI dependencies separately from the backend:
+
+```bash
+cd ai
+python -m venv .venv
+# Activate the virtual environment for your shell
+python -m pip install -r requirements.txt
+```
 
 ## SafeRAG
 
@@ -183,18 +253,30 @@ the environment.
 
 ## Testing
 
-Install development dependencies, then run lint and all backend-owned tests:
+Install the backend development dependencies and AI pipeline dependencies, then run the tests:
 
 ```bash
-ruff check backend saferag shared tests
-pytest
+python -m pip install -e ".[dev]"
+python -m pip install -r ai/requirements.txt
 ```
 
-The seven current tests verify that the FastAPI app starts, the health route responds, and SafeRAG
-enforces its wrapper order and blocking semantics using a contract-compatible fake RAG. There
-are no AI-team tests because `ai/` is intentionally empty.
+Run only the Neon full-text retriever unit tests:
 
-GitHub Actions runs the same lint and test commands for pull requests.
+```bash
+python -m pytest tests/ai/test_full_text_retriever.py -q
+```
+
+Run all tests and lint checks:
+
+```bash
+python -m pytest
+ruff check backend saferag shared tests
+```
+
+The AI tests do not require a live Neon database. The retriever tests check query parameters,
+collection filtering, database-row mapping, and the no-results case. The ingestion tests check
+stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
+GitHub Actions installs the AI requirements and runs the test suite for pull requests.
 
 ## Development Workflow
 
