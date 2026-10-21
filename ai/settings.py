@@ -6,7 +6,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 
-
 PIPELINE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PIPELINE_DIR.parent
 DOCS_DIR = PIPELINE_DIR / "docs"
@@ -23,12 +22,15 @@ CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "100"))
 EMBEDDING_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "1000")))
 NEON_WRITE_BATCH_SIZE = max(1, int(os.getenv("NEON_WRITE_BATCH_SIZE", "500")))
 
+
 def get_embeddings() -> OpenAIEmbeddings:
     """Return configured OpenAIEmbeddings with batching enabled."""
     return OpenAIEmbeddings(
         model=EMBEDDING_MODEL,
         chunk_size=EMBEDDING_BATCH_SIZE,
     )
+
+
 def get_neon_connection_url() -> str:
     """Return the direct Neon URL in psycopg 3 SQLAlchemy URL format."""
     # This is a long-running local process, and PGVector initializes schema
@@ -41,9 +43,9 @@ def get_neon_connection_url() -> str:
         )
 
     if url.startswith("postgres://"):
-        return "postgresql+psycopg://" + url[len("postgres://"):]
+        return "postgresql+psycopg://" + url[len("postgres://") :]
     if url.startswith("postgresql://"):
-        return "postgresql+psycopg://" + url[len("postgresql://"):]
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
     if url.startswith("postgresql+psycopg2://"):
-        return "postgresql+psycopg://" + url[len("postgresql+psycopg2://"):]
+        return "postgresql+psycopg://" + url[len("postgresql+psycopg2://") :]
     return url

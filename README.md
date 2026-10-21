@@ -87,12 +87,40 @@ database. No domain schema or migrations exist yet.
 
 ## AI / RAG
 
-`ai/` belongs entirely to the AI team and is intentionally empty after this bootstrap. No RAG
-interfaces, ingestion, chunking, embeddings, retrieval, reranking, generation, critic models,
-vector storage, configuration, or tests have been created there.
+The `ai/` pipeline is separate from the FastAPI backend.
 
-The AI team can build independently against the coordinated contract in
-`shared/contracts/rag.py`. Changes to that contract require backend and AI codeowner review.
+`ingestion_pipeline.py` loads PDF files from `ai/docs/`, splits pages into
+chunks, creates embeddings, and stores them in a Neon `PGVector` collection.
+The default embedding model is `text-embedding-3-large`; the default collection
+is `ai_health_documents_v3`.
+
+`RAG_Pipeline.py` retrieves from that collection using dense vector search and
+Postgres full-text search, combines the results, and uses multi-query retrieval
+and reciprocal-rank fusion before generating an answer. It applies OpenAI
+moderation, deterministic input checks, and a separate answer review. It is
+started as an interactive command-line chat, not through the backend API.
+
+The full-text retriever expects a generated `search_vector` column on
+`langchain_pg_embedding` and a GIN index on that column. The AI directory
+currently contains no migration that creates them. Add the required migration
+and apply it to Neon after the PGVector table exists and before starting the
+RAG chat.
+
+The final answer is free text. The prompt asks for source names, but the
+pipeline does not validate citations against retrieved chunks. Reformulated
+and generated queries also do not receive the same scope and injection checks
+as the original question.
+
+### AI/RAG setup
+
+Install the AI dependencies separately from the backend:
+
+```bash
+cd ai
+python -m venv .venv
+# Activate the virtual environment for your shell
+python -m pip install -r requirements.txt
+```
 
 ## SafeRAG
 
