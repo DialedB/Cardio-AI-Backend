@@ -87,29 +87,71 @@ database. No domain schema or migrations exist yet.
 
 ## AI / RAG
 
-The `ai/` pipeline is separate from the FastAPI backend.
+The `ai/` directory contains a standalone PDF ingestion and retrieval-augmented
+generation (RAG) command-line pipeline. It uses Neon Postgres for stored chunks,
+embeddings, and full-text retrieval. It runs separately from the FastAPI backend:
+`POST /api/query` is still a placeholder and does not call this pipeline.
 
-`ingestion_pipeline.py` loads PDF files from `ai/docs/`, splits pages into
-chunks, creates embeddings, and stores them in a Neon `PGVector` collection.
-The default embedding model is `text-embedding-3-large`; the default collection
-is `ai_health_documents_v3`.
+### Components
 
-`RAG_Pipeline.py` retrieves from that collection using dense vector search and
-Postgres full-text search, combines the results, and uses multi-query retrieval
-and reciprocal-rank fusion before generating an answer. It applies OpenAI
-moderation, deterministic input checks, and a separate answer review. It is
-started as an interactive command-line chat, not through the backend API.
+- `ai/ingestion_pipeline.py` loads PDF files, splits them into chunks, creates
+  embeddings, and stores them in the configured Neon PGVector collection.
+- `ai/full_text_retriever.py` searches chunk text using Postgres full-text
+  search and returns ranked documents.
+- `ai/RAG_Pipeline.py` combines full-text and vector retrieval, generates
+  query variations, merges results with reciprocal-rank fusion, and creates
+  answers using retrieved source excerpts.
+- `ai/settings.py` provides the shared model, chunking, collection, and database
+  settings.
+- `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
+  by the full-text retriever.
 
-The full-text retriever expects a generated `search_vector` column on
-`langchain_pg_embedding` and a GIN index on that column. The AI directory
-currently contains no migration that creates them. Add the required migration
-and apply it to Neon after the PGVector table exists and before starting the
-RAG chat.
+### Ingestion behavior
 
-The final answer is free text. The prompt asks for source names, but the
-pipeline does not validate citations against retrieved chunks. Reformulated
-and generated queries also do not receive the same scope and injection checks
-as the original question.
+The ingestion script reads top-level PDF files from `ai/docs/` in filename
+order. PDFs and the `docs/` directory are ignored by Git, so add source PDFs
+locally.
+
+Each loaded PDF page is split into chunks. The default chunk size is 1,000
+characters with 100 characters of overlap. These values can be changed with
+`RAG_CHUNK_SIZE` and `RAG_CHUNK_OVERLAP`.
+
+Chunk IDs are based on the collection name, the PDF path relative to `ai/docs/`,
+and a SHA-256 hash of the chunk text. They do not depend on chunk position.
+Unchanged IDs already in the collection are skipped. Repeated identical chunks
+within one source are collapsed; identical text in different source files
+remains stored as separate chunks, though its embedding is reused within an
+ingestion run.
+
+By default, ingestion deletes rows in the collection that are not present in the
+current PDF input. Treat the configured collection as belonging to this corpus
+when using the default behavior. Pass `--no-prune` to retain rows absent from
+the current input.
+
+`--dry-run` reports the current, new, unchanged, and stale chunk counts and
+estimates embedding tokens without requesting embeddings or writing data. It
+still connects to Neon to look up existing chunk IDs. If `tiktoken` is not
+available, the token estimate is approximate.
+
+### Neon full-text search schema
+
+The full-text retriever queries the generated `search_vector` column on
+`langchain_pg_embedding`. The SQL migration adds that column using the English
+text-search configuration and creates a GIN index for searching it. PostgreSQL
+keeps the generated column synchronized with chunk text.
+
+This SQL was applied manually to the current Neon database. The migration is
+now tracked at `ai/migrations/0001_add_full_text_search.sql` for reuse. For a
+new Neon database or branch, first create the PGVector table by running normal
+ingestion, then apply the migration once before starting the RAG chat. The
+migration is not run automatically by the Python pipeline.
+
+You can run it from the repository root with `psql`:
+
+```bash
+psql "<Neon connection string>" \
+  -f ai/migrations/0001_add_full_text_search.sql
+```
 
 ### AI/RAG setup
 

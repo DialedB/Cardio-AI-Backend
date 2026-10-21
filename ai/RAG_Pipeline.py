@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 
 from full_text_retriever import NeonFullTextRetriever
+from full_text_schema import require_full_text_search_schema
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -172,6 +173,7 @@ def safe_response(question: str, answer: str, source_context: str) -> str:
 
 
 # Connect to the shared Neon pgvector collection
+require_full_text_search_schema()
 vector_store = PGVector(
     embeddings=embedding_model,
     collection_name=COLLECTION_NAME,

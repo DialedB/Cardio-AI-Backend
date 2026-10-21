@@ -19,6 +19,7 @@ from settings import (
     get_embeddings,
     get_neon_connection_url,
 )
+from full_text_schema import apply_full_text_search_migration
 from sqlalchemy import create_engine, inspect, text
 
 # PGVector (langchain-postgres 0.0.19) schema: langchain_pg_embedding rows
@@ -165,9 +166,6 @@ def create_vector_store(chunks, prune=True, dry_run=False):
     if dry_run:
         print("Dry run: nothing written, no embeddings requested.")
         return None
-    if not pending and (not prune or not stale):
-        print(f"Neon collection '{COLLECTION_NAME}' is already up to date.")
-        return None
 
     store_start = perf_counter()
     embeddings = get_embeddings()
@@ -177,7 +175,14 @@ def create_vector_store(chunks, prune=True, dry_run=False):
         connection=get_neon_connection_url(),
         use_jsonb=True,
     )
+    # PGVector creates its base tables here; ensure the same database also has
+    # the FTS generated column and GIN index before ingestion writes any chunks.
+    apply_full_text_search_migration()
     store_init_seconds = perf_counter() - store_start
+
+    if not pending and (not prune or not stale):
+        print(f"Neon collection '{COLLECTION_NAME}' is already up to date.")
+        return vector_store
 
     embedding_seconds = 0.0
     write_seconds = 0.0

@@ -10,9 +10,10 @@ PIPELINE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PIPELINE_DIR.parent
 DOCS_DIR = PIPELINE_DIR / "docs"
 
-# Load the Neon-linked variables first; preserve any provider keys in the
-# pipeline-local .env without allowing it to replace the Neon connection URL.
+# Load environment variables in precedence order: process environment, the
+# repo-root .env.local, then pipeline-local files without overriding earlier values.
 load_dotenv(PROJECT_ROOT / ".env.local")
+load_dotenv(PIPELINE_DIR / ".env.local", override=False)
 load_dotenv(PIPELINE_DIR / ".env", override=False)
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
