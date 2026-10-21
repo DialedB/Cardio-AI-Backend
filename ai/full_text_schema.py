@@ -2,10 +2,8 @@
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
-
 from settings import get_neon_connection_url
-
+from sqlalchemy import create_engine, inspect, text
 
 MIGRATION_PATH = Path(__file__).resolve().parent / "migrations" / "0001_add_full_text_search.sql"
 REQUIRED_TABLE = "langchain_pg_embedding"

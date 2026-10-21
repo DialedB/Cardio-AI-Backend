@@ -140,13 +140,13 @@ The full-text retriever queries the generated `search_vector` column on
 text-search configuration and creates a GIN index for searching it. PostgreSQL
 keeps the generated column synchronized with chunk text.
 
-This SQL was applied manually to the current Neon database. The migration is
-now tracked at `ai/migrations/0001_add_full_text_search.sql` for reuse. For a
-new Neon database or branch, first create the PGVector table by running normal
-ingestion, then apply the migration once before starting the RAG chat. The
-migration is not run automatically by the Python pipeline.
+The SQL migration is tracked at `ai/migrations/0001_add_full_text_search.sql`. On a normal ingestion
+run, PGVector initializes its tables and the pipeline applies this idempotent migration before
+embedding or writing chunks. It creates a missing `search_vector` generated column and GIN index;
+existing objects are left in place. `--dry-run` does not apply the migration. RAG startup checks
+that the table, column, and index exist and reports an actionable error if they do not.
 
-You can run it from the repository root with `psql`:
+For a manual setup or recovery, you can still run the migration from the repository root with `psql`:
 
 ```bash
 psql "<Neon connection string>" \
@@ -253,18 +253,30 @@ the environment.
 
 ## Testing
 
-Install development dependencies, then run lint and all backend-owned tests:
+Install the backend development dependencies and AI pipeline dependencies, then run the tests:
 
 ```bash
-ruff check backend saferag shared tests
-pytest
+python -m pip install -e ".[dev]"
+python -m pip install -r ai/requirements.txt
 ```
 
-The seven current tests verify that the FastAPI app starts, the health route responds, and SafeRAG
-enforces its wrapper order and blocking semantics using a contract-compatible fake RAG. There
-are no AI-team tests because `ai/` is intentionally empty.
+Run only the Neon full-text retriever unit tests:
 
-GitHub Actions runs the same lint and test commands for pull requests.
+```bash
+python -m pytest tests/ai/test_full_text_retriever.py -q
+```
+
+Run all tests and lint checks:
+
+```bash
+python -m pytest
+ruff check backend saferag shared tests
+```
+
+The AI tests do not require a live Neon database. The retriever tests check query parameters,
+collection filtering, database-row mapping, and the no-results case. The ingestion tests check
+stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
+GitHub Actions installs the AI requirements and runs the test suite for pull requests.
 
 ## Development Workflow
 

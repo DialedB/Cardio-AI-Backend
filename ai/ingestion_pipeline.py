@@ -4,6 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from uuid import NAMESPACE_URL, uuid5
 
+from full_text_schema import apply_full_text_search_migration
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_postgres import PGVector
@@ -19,7 +20,6 @@ from settings import (
     get_embeddings,
     get_neon_connection_url,
 )
-from full_text_schema import apply_full_text_search_migration
 from sqlalchemy import create_engine, inspect, text
 
 # PGVector (langchain-postgres 0.0.19) schema: langchain_pg_embedding rows

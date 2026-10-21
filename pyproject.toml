@@ -32,7 +32,7 @@ include = ["backend*", "saferag*", "shared*"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 asyncio_mode = "auto"
-pythonpath = ["."]
+pythonpath = [".", "ai"]
 testpaths = ["tests", "saferag/tests"]
 
 [tool.ruff]
