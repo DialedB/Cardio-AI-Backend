@@ -8,4 +8,5 @@ openai
 pydantic
 python-dotenv
 pypdf
+fonttools
 psycopg[binary]
