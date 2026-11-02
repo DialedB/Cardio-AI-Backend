@@ -9,3 +9,6 @@ pydantic
 python-dotenv
 pypdf
 psycopg[binary]
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-grpc==1.45.2
