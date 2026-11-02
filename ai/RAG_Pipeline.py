@@ -11,18 +11,34 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_postgres import PGVector
 from openai import OpenAI
 from pydantic import BaseModel, Field
-from settings import COLLECTION_NAME, EMBEDDING_MODEL, get_neon_connection_url
+from settings import (
+    COLLECTION_NAME,
+    EMBEDDING_MODEL,
+    OPENAI_MAX_RETRIES,
+    OPENAI_TIMEOUT_SECONDS,
+    get_neon_connection_url,
+)
 
 # Load embeddings and LLM
-embedding_model = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-model = ChatOpenAI(model="gpt-6-astra")
+embedding_model = OpenAIEmbeddings(
+    model=EMBEDDING_MODEL,
+    request_timeout=OPENAI_TIMEOUT_SECONDS,
+    max_retries=OPENAI_MAX_RETRIES,
+)
+model = ChatOpenAI(
+    model="gpt-6-astra",
+    timeout=OPENAI_TIMEOUT_SECONDS,
+    max_retries=OPENAI_MAX_RETRIES,
+)
 
 # Safety checks are applied to every user prompt and generated answer. The
 # reviewer is intentionally a separate, lightweight model call.
-moderation_client = OpenAI()
+moderation_client = OpenAI(timeout=OPENAI_TIMEOUT_SECONDS, max_retries=OPENAI_MAX_RETRIES)
 review_model = ChatOpenAI(
     model=os.getenv("SAFETY_REVIEW_MODEL", "gpt-4.1-mini"),
     temperature=0,
+    timeout=OPENAI_TIMEOUT_SECONDS,
+    max_retries=OPENAI_MAX_RETRIES,
 )
 
 CLINICAL_DISCLAIMER = (
@@ -254,6 +270,20 @@ def reciprocal_rank_fusion(chunk_lists, k=60, verbose=True):
     return sorted_chunks
 
 
+def message_text(message) -> str:
+    """Return a model message's text, or "" when it has no plain-text content."""
+    content = getattr(message, "content", None)
+    return content.strip() if isinstance(content, str) else ""
+
+
+def fail_closed(stage: str, exc: Exception) -> str:
+    """Log a failed pipeline step and return the fail-closed answer."""
+    print(f"[{stage}] failed: {type(exc).__name__}: {exc}")
+    answer = add_disclaimer(CHECK_UNAVAILABLE)
+    print(f"\n🤖 Answer: {answer}")
+    return answer
+
+
 def ask_question(user_question):
     print(f"\n--- You asked: {user_question} ---")
 
@@ -300,8 +330,12 @@ def ask_question(user_question):
             + [HumanMessage(content=f"New question: {user_question}")]
         )
 
-        result = model.invoke(reformulation_messages)
-        search_question = result.content.strip()
+        try:
+            search_question = message_text(model.invoke(reformulation_messages))
+        except Exception as exc:
+            print(f"[reformulation] failed: {type(exc).__name__}: {exc}")
+            search_question = ""
+        search_question = search_question or user_question
         print(f"Standalone Query: {search_question}")
     else:
         search_question = user_question
@@ -318,10 +352,18 @@ def ask_question(user_question):
         "from different angles."
     )
 
-    response = model_with_tools.invoke(prompt)
+    try:
+        response = model_with_tools.invoke(prompt)
+        variations = [
+            query for query in (getattr(response, "queries", None) or [])
+            if isinstance(query, str) and query.strip()
+        ]
+    except Exception as exc:
+        print(f"[multi-query] failed: {type(exc).__name__}: {exc}")
+        variations = []
 
     # Combine the standalone question with the 3 variations
-    all_queries = [search_question] + response.queries
+    all_queries = [search_question] + variations
     for i, q in enumerate(all_queries, 1):
         print(f"  {i}. {q}")
 
@@ -331,15 +373,21 @@ def ask_question(user_question):
     print("\n[Step 3] Retrieving documents for all queries...")
     all_retrieval_results = []
 
-    for query in all_queries:
-        docs = retriever.invoke(query)
-        all_retrieval_results.append(docs)
+    try:
+        for query in all_queries:
+            docs = retriever.invoke(query)
+            all_retrieval_results.append(docs)
+    except Exception as exc:
+        return fail_closed("retrieval", exc)
 
     # ==========================================
     # STEP 4: Reciprocal Rank Fusion (RRF)
     # ==========================================
     # Pass the lists of documents to our RRF function
-    fused_results = reciprocal_rank_fusion(all_retrieval_results, k=60, verbose=False)
+    try:
+        fused_results = reciprocal_rank_fusion(all_retrieval_results, k=60, verbose=False)
+    except Exception as exc:
+        return fail_closed("fusion", exc)
 
     # Extract the top 5 documents and discard passages that look like prompt
     # injection. Retrieved text is untrusted evidence, never an instruction.
@@ -400,14 +448,19 @@ def ask_question(user_question):
         + [HumanMessage(content=combined_input)]
     )
 
-    result = model.invoke(final_messages)
     try:
-        answer = safe_response(user_question, result.content, source_context)
+        draft = message_text(model.invoke(final_messages))
     except Exception as exc:
-        print(f"Response safety review unavailable: {exc}")
-        answer = add_disclaimer(CHECK_UNAVAILABLE)
+        return fail_closed("generation", exc)
+    if not draft:
+        return fail_closed("generation", ValueError("model returned no answer text"))
 
-    # Update global chat history
+    try:
+        answer = safe_response(user_question, draft, source_context)
+    except Exception as exc:
+        return fail_closed("safety review", exc)
+
+    # Update global chat history (failed exchanges above are not recorded)
     chat_history.append(HumanMessage(content=user_question))
     chat_history.append(AIMessage(content=answer))
 
@@ -424,14 +477,21 @@ def start_chat():
     print("=" * 60)
     print("Ask me questions! Type 'quit' to exit.")
 
-    while True:
-        question = input("\nYour question: ")
+    try:
+        while True:
+            question = input("\nYour question: ")
 
-        if question.lower() in ["quit", "exit", "q"]:
-            print("Goodbye!")
-            break
+            if question.lower() in ["quit", "exit", "q"]:
+                print("Goodbye!")
+                break
 
-        ask_question(question)
+            try:
+                ask_question(question)
+            except Exception as exc:
+                print(f"[chat] failed: {type(exc).__name__}: {exc}")
+                print(f"\nAnswer: {add_disclaimer(CHECK_UNAVAILABLE)}")
+    except (EOFError, KeyboardInterrupt):
+        print("\nGoodbye!")
 
 
 if __name__ == "__main__":
