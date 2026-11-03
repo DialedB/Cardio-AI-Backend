@@ -336,7 +336,7 @@ def is_out_of_scope(question: str) -> bool:
     )
 
 
-def moderate_text(text: str, *, operation: str) -> bool:
+def moderate_text(text: str, *, operation: str = "moderation") -> bool:
     """Return whether moderation flags text; failures are traced and fail closed."""
     with observe_operation(f"safety.{operation}", operation) as span:
         result = moderation_client.moderations.create(
@@ -519,7 +519,7 @@ def _ask_question(user_question):
         return add_disclaimer("Please enter a question.")
 
     try:
-        flagged = moderate_text(user_question, operation="input_moderation")
+        flagged = moderate_text(user_question)
         if flagged:
             set_request_result("safety_rejected")
             logger.info("Input rejected by moderation")
