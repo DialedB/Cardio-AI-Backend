@@ -11,6 +11,8 @@ services:
       LOG_LEVEL: INFO
     ports:
       - "8000:8000"
+    networks:
+      - llm-obs-lab
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,11 +27,86 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - llm-obs-lab
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cardiosmart -d cardiosmart"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./config/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - llm-obs-lab
+    depends_on:
+      - jaeger
+      - loki
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+    networks:
+      - llm-obs-lab
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --storage.tsdb.retention.time=1d
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - llm-obs-lab
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - llm-obs-lab
+    depends_on:
+      - prometheus
+      - jaeger
+      - loki
+
+  loki:
+    image: grafana/loki:latest
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "3100:3100"
+    networks:
+      - llm-obs-lab
+
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+networks:
+  llm-obs-lab:
+    driver: bridge

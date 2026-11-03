@@ -7,7 +7,7 @@ currently provides a production-oriented starting point: a FastAPI modular monol
 PostgreSQL session infrastructure, a neutral RAG contract, and an independent SafeRAG wrapper.
 
 The repository contains three separately owned areas. The backend team owns the application
-and its integration boundary. The AI team owns the future RAG implementation. SafeRAG sits
+and its integration boundary. The AI team owns the standalone RAG implementation. SafeRAG sits
 between them as a security wrapper around a small shared protocol.
 
 ## Architecture
@@ -47,10 +47,11 @@ It does not import from `ai/` or depend on AI implementation details.
 │   ├── jobs/                Future background job entry points
 │   ├── observability/       Logging, metrics, and tracing integration points
 │   └── services/            Future application services
-├── ai/                      AI-team-owned area; intentionally empty
+├── ai/                      AI-team-owned ingestion and standalone RAG pipeline
 ├── saferag/                 Independent RAG security wrapper
 ├── shared/contracts/        Coordinated cross-team data contracts
 ├── infra/docker/            Backend container definition
+├── config/                  Local OpenTelemetry, Prometheus, Grafana, and Loki config
 ├── tests/                   Backend-owned tests and future end-to-end tests
 ├── docs/                    Future project documentation
 └── .github/                 CI, CODEOWNERS, and pull request template
@@ -164,6 +165,45 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+The pipeline reads its secrets from the process environment, the repository-root
+`.env.local`, then `ai/.env.local` and `ai/.env`. Configure `OPENAI_API_KEY` and
+`DATABASE_URL` (or `DATABASE_URL_UNPOOLED`) before starting it. Run from the `ai/`
+directory after starting the observability stack:
+
+```bash
+python RAG_Pipeline.py
+```
+
+### RAG telemetry
+
+`ai/RAG_Pipeline.py` exports OpenTelemetry traces, metrics, and logs to the local
+Collector. Traces cover the request, moderation, query generation, retrieval, rank
+fusion, answer generation, and response review. Metrics include request outcomes and
+duration, operation latency and errors, search-result/fused/selected document counts,
+LLM calls, and provider-reported token usage. Token metrics are emitted only when the
+model response includes usage metadata. Prometheus and Grafana show no RAG series until
+the pipeline has processed requests.
+
+The instrumented code does not attach prompt, answer, or retrieved-text content to span
+attributes. The interactive CLI still prints its normal question, query, document-preview,
+and answer output to the console.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://127.0.0.1:4317` | Collector OTLP endpoint; use `http://otel-collector:4317` when the RAG process runs in the Compose network |
+| `OTEL_SERVICE_NAME` | `cardio-rag` | Telemetry service name |
+| `APP_VERSION` | `unknown` | Service version resource attribute |
+| `APP_ENVIRONMENT` / `APP_ENV` | `dev` | Deployment environment resource attribute |
+| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `5000` | Metric export interval in milliseconds |
+| `RAG_MODEL_NAME` | `gpt-6-astra` | Main RAG model |
+
+The telemetry stack is part of the root `docker-compose.yml`. Its configuration and
+the provisioned **Cardio RAG Pipeline** dashboard are under `config/`. See Grafana at
+`http://localhost:3000/d/cardio-rag-overview/cardio-rag-pipeline`, Jaeger at
+`http://localhost:16686`, Prometheus at `http://localhost:9090`, and Loki at
+`http://localhost:3100`. Grafana's local Compose credentials default to `admin` / `admin`;
+set `GRAFANA_ADMIN_PASSWORD` before the first start to choose a different password.
+
 ## SafeRAG
 
 SafeRAG is an independent decorator around any object that satisfies `RAGInterface`:
@@ -223,11 +263,16 @@ Requirements:
 
 - Docker with Docker Compose
 
-Build and start the FastAPI backend and PostgreSQL:
+Build and start the FastAPI backend, PostgreSQL, and local observability stack:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
+
+The Collector accepts OTLP gRPC on port `4317` and OTLP HTTP on `4318`. Prometheus,
+Grafana, Jaeger, and Loki are exposed on ports `9090`, `3000`, `16686`, and `3100`.
+The RAG CLI runs separately on the host; its default OTLP endpoint reaches the published
+Collector port. Run the CLI and submit a question to populate the RAG dashboard.
 
 Apply database migrations from the project root:
 
@@ -247,9 +292,9 @@ Stop the stack with `Ctrl+C`, then remove its containers:
 docker compose down
 ```
 
-The named PostgreSQL volume persists local data. Use the local credentials in
-`docker-compose.yml` only for development; deployments must provide their own secrets through
-the environment.
+The named PostgreSQL, Prometheus, Grafana, and Loki volumes persist local data. Use the local
+credentials in `docker-compose.yml` only for development; deployments must provide their own
+secrets through the environment.
 
 ## Testing
 
@@ -299,9 +344,11 @@ The repository currently contains:
 - environment-based settings;
 - PostgreSQL-ready SQLAlchemy session construction;
 - a thin backend RAG integration adapter;
+- a standalone Neon-backed AI RAG pipeline with OpenTelemetry traces, metrics, and logs;
 - neutral shared RAG contracts;
 - a tested SafeRAG decorator architecture;
-- local Docker Compose infrastructure for the backend and PostgreSQL;
+- local Docker Compose infrastructure for the backend, PostgreSQL, and telemetry services;
+- a provisioned Grafana dashboard for RAG pipeline metrics;
 - pull request CI for lint and backend/SafeRAG tests; and
 - ownership, contribution, PR, and agent-development guidance.
 
@@ -311,7 +358,7 @@ The repository currently contains:
   implemented.
 - No database domain models, migrations, or repositories have been designed.
 - SafeRAG guards are pass-through wiring placeholders and provide no real security detection.
-- No RAG implementation is present; `ai/` is reserved for the AI team.
+- The standalone AI pipeline is not yet connected to the backend query route.
 - The backend query route has not yet been connected to a runtime-supplied SafeRAG instance.
-- Metrics, tracing, background execution, and audit storage are integration points only.
+- Backend `backend/observability/` remains an integration point; the standalone AI pipeline has its own telemetry setup.
 - CODEOWNERS entries contain placeholders that must be replaced with real GitHub users or teams.
