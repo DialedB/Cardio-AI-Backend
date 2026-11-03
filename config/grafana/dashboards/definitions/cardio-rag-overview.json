@@ -1,0 +1,172 @@
+{
+  "uid": "cardio-rag-overview",
+  "title": "Cardio RAG Pipeline",
+  "tags": ["rag", "opentelemetry"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Requests",
+      "description": "Total requests observed since the Prometheus series began.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rag_requests_total)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failed requests",
+      "description": "Requests that raised an exception in the RAG pipeline.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sum(rag_requests_total{outcome=\"error\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Mean request duration",
+      "description": "Mean end-to-end duration across requests in the selected time range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(increase(rag_request_duration_milliseconds_sum[1h])) / sum(increase(rag_request_duration_milliseconds_count[1h]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "ms", "decimals": 1 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Search result documents",
+      "description": "Total results returned across query variations; the same source may appear multiple times.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(rag_retrieved_documents_total)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request rate by outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "sum by (outcome) (rate(rag_requests_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Request duration (p50 / p95)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(rag_request_duration_milliseconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(rag_request_duration_milliseconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "ms" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Operation duration (p95)",
+      "description": "Latency by operation, including moderation, query generation, retrieval, answer generation, and response review.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(rag_operation_duration_milliseconds_bucket[5m])))", "legendFormat": "{{operation}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "ms" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Retrieved documents per second",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "sum by (retriever) (rate(rag_retrieved_documents_total[5m]))", "legendFormat": "{{retriever}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "LLM requests per second",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [{ "expr": "sum by (operation) (rate(rag_llm_requests_total[5m]))", "legendFormat": "{{operation}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Provider-reported tokens per second",
+      "description": "Input and output tokens by LLM operation when the provider returns usage metadata.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "sum by (operation) (rate(rag_llm_input_tokens_total[5m]))", "legendFormat": "input · {{operation}}", "refId": "A" },
+        { "expr": "sum by (operation) (rate(rag_llm_output_tokens_total[5m]))", "legendFormat": "output · {{operation}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Unique fused documents",
+      "description": "Distinct documents remaining after reciprocal-rank fusion.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
+      "targets": [{ "expr": "sum(rag_fused_documents_total)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Documents used as context",
+      "description": "Documents selected for final answer generation.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 28 },
+      "targets": [{ "expr": "sum(rag_selected_documents_total)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto" }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Operation failures per second",
+      "description": "Errors raised by instrumented RAG operations.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [{ "expr": "sum by (operation) (rate(rag_operation_errors_total[5m]))", "legendFormat": "{{operation}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    }
+  ],
+  "links": [],
+  "templating": { "list": [] }
+}
