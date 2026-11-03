@@ -271,9 +271,23 @@ def reciprocal_rank_fusion(chunk_lists, k=60, verbose=True):
 
 
 def message_text(message) -> str:
-    """Return a model message's text, or "" when it has no plain-text content."""
+    """Return a model message's text, or "" when it has no usable text."""
     content = getattr(message, "content", None)
-    return content.strip() if isinstance(content, str) else ""
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+
+    parts = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict):
+            if block.get("type") == "refusal":
+                return ""
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+    return "".join(parts).strip()
 
 
 def fail_closed(stage: str, exc: Exception) -> str:

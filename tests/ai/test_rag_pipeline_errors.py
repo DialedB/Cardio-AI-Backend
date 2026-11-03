@@ -99,8 +99,36 @@ def test_generation_failure_fails_closed(rag):
     assert rag.chat_history == []
 
 
-@pytest.mark.parametrize("content", ["", "   ", None, [{"type": "text", "text": "x"}]])
-def test_empty_or_non_text_generation_fails_closed(rag, content):
+def test_text_blocks_are_joined_into_the_answer(rag):
+    rag.model = FakeRunnable(
+        message(
+            [
+                {"type": "reasoning", "reasoning": "internal"},
+                {"type": "text", "text": "Exercise helps "},
+                "the heart.",
+                {"type": "text", "text": None},
+            ]
+        )
+    )
+
+    assert rag.ask_question(QUESTION) == rag.add_disclaimer("Exercise helps the heart.")
+    assert len(rag.chat_history) == 2
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "   ",
+        None,
+        [],
+        [{"type": "reasoning", "reasoning": "internal"}],
+        [{"type": "text", "text": 42}, {"type": "text"}, {"text": "missing type"}],
+        [{"type": "text", "text": "   "}],
+        [{"type": "text", "text": "Partial"}, {"type": "refusal", "refusal": "Can't help."}],
+    ],
+)
+def test_empty_non_text_or_refused_generation_fails_closed(rag, content):
     rag.model = FakeRunnable(message(content))
 
     assert rag.ask_question(QUESTION) == rag.add_disclaimer(rag.CHECK_UNAVAILABLE)
