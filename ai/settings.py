@@ -22,6 +22,9 @@ CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "100"))
 EMBEDDING_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "1000")))
 NEON_WRITE_BATCH_SIZE = max(1, int(os.getenv("NEON_WRITE_BATCH_SIZE", "500")))
+# Query-time OpenAI calls: a stalled request raises after the timeout instead of hanging.
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+OPENAI_MAX_RETRIES = max(0, int(os.getenv("OPENAI_MAX_RETRIES", "2")))
 
 
 def get_embeddings() -> OpenAIEmbeddings:

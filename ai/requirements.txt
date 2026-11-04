@@ -8,6 +8,7 @@ openai
 pydantic
 python-dotenv
 pypdf
+fonttools
 psycopg[binary]
 opentelemetry-api==1.45.2
 opentelemetry-sdk==1.45.2

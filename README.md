@@ -101,7 +101,12 @@ embeddings, and full-text retrieval. It runs separately from the FastAPI backend
   search and returns ranked documents.
 - `ai/RAG_Pipeline.py` combines full-text and vector retrieval, generates
   query variations, merges results with reciprocal-rank fusion, and creates
-  answers using retrieved source excerpts.
+  answers using retrieved source excerpts. If retrieval, answer generation, or
+  the safety review fails, it returns the fail-closed "safety checks are
+  unavailable" message instead of crashing; query rewriting and query
+  variations fall back to the original question. OpenAI calls time out after
+  `OPENAI_TIMEOUT_SECONDS` (default 30) with `OPENAI_MAX_RETRIES` retries
+  (default 2).
 - `ai/settings.py` provides the shared model, chunking, collection, and database
   settings.
 - `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
@@ -321,6 +326,8 @@ ruff check backend saferag shared tests
 The AI tests do not require a live Neon database. The retriever tests check query parameters,
 collection filtering, database-row mapping, and the no-results case. The ingestion tests check
 stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
+The RAG pipeline error tests replace models, retrievers, and safety calls with fakes and check
+the fail-closed and fallback behavior of each query step.
 GitHub Actions installs the AI requirements and runs the test suite for pull requests.
 
 ## Development Workflow
