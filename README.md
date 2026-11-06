@@ -297,7 +297,9 @@ docker compose up --build -d
 ```
 
 The Collector accepts OTLP gRPC on port `4317` and OTLP HTTP on `4318`. Prometheus,
-Grafana, Jaeger, and Loki are exposed on ports `9090`, `3000`, `16686`, and `3100`.
+Grafana, and Jaeger are exposed on ports `9090`, `3000`, and `16686`. Loki's API is
+bound to host loopback on port `3100`; other Compose services reach it over the
+internal network. Loki stores data in the `loki_data` volume mounted at `/loki`.
 The RAG CLI runs separately on the host; its default OTLP endpoint reaches the published
 Collector port. Run the CLI and submit a question to populate the RAG dashboard.
 
