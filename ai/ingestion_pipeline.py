@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -15,6 +16,7 @@ from settings import (
     COLLECTION_NAME,
     DOCS_DIR,
     EMBEDDING_BATCH_SIZE,
+    EMBEDDING_CONCURRENCY,
     EMBEDDING_MODEL,
     NEON_WRITE_BATCH_SIZE,
     get_embeddings,
@@ -141,8 +143,78 @@ def write_chunks(vector_store, chunks, embeddings_by_id):
         )
 
 
-def create_vector_store(chunks, prune=True, dry_run=False):
-    """Embed only new chunks, upsert them into Neon, then prune stale rows."""
+async def embed_and_write_batches(
+    embeddings,
+    vector_store,
+    chunks_by_hash,
+    *,
+    batch_size=EMBEDDING_BATCH_SIZE,
+    concurrency=EMBEDDING_CONCURRENCY,
+):
+    """Embed bounded groups concurrently, then write their results to Neon."""
+    if batch_size < 1 or concurrency < 1:
+        raise ValueError("batch_size and concurrency must be at least 1")
+
+    hashes = list(chunks_by_hash)
+    batches = [
+        hashes[start : start + batch_size]
+        for start in range(0, len(hashes), batch_size)
+    ]
+    embedding_worker_seconds = 0.0
+    embedding_wall_seconds = 0.0
+    write_seconds = 0.0
+    saved_chunks = 0
+    embedded_texts = 0
+
+    async def embed_batch(batch_number, batch_hashes):
+        started = perf_counter()
+        vectors = await embeddings.aembed_documents(
+            [chunks_by_hash[digest][0].page_content for digest in batch_hashes]
+        )
+        finished = perf_counter()
+        if len(vectors) != len(batch_hashes):
+            raise RuntimeError(
+                f"Embedding returned {len(vectors)} vectors for "
+                f"{len(batch_hashes)} texts in batch {batch_number + 1}"
+            )
+        return batch_number, batch_hashes, vectors, started, finished
+
+    for group_start in range(0, len(batches), concurrency):
+        group = batches[group_start : group_start + concurrency]
+        group_started = perf_counter()
+        results = await asyncio.gather(
+            *(
+                embed_batch(group_start + offset, batch_hashes)
+                for offset, batch_hashes in enumerate(group)
+            )
+        )
+        embedding_wall_seconds += perf_counter() - group_started
+
+        for batch_number, batch_hashes, vectors, started, finished in results:
+            embedding_worker_seconds += finished - started
+            embedded_texts += len(batch_hashes)
+
+            batch_chunks = []
+            embeddings_by_id = {}
+            for digest, vector in zip(batch_hashes, vectors, strict=True):
+                for chunk in chunks_by_hash[digest]:
+                    batch_chunks.append(chunk)
+                    embeddings_by_id[chunk.id] = vector
+
+            write_started = perf_counter()
+            write_chunks(vector_store, batch_chunks, embeddings_by_id)
+            write_seconds += perf_counter() - write_started
+            saved_chunks += len(batch_chunks)
+            print(
+                f"Embedded {embedded_texts}/{len(hashes)} distinct texts; "
+                f"saved {saved_chunks} chunks (batch {batch_number + 1}/{len(batches)})."
+            )
+
+    return embedding_wall_seconds, embedding_worker_seconds, write_seconds, saved_chunks
+
+
+async def acreate_vector_store(chunks, prune=True, dry_run=False):
+    """Asynchronously embed new chunks, upsert them into Neon, and prune stale rows."""
     lookup_start = perf_counter()
     existing_ids = fetch_existing_ids()
     lookup_seconds = perf_counter() - lookup_start
@@ -184,31 +256,13 @@ def create_vector_store(chunks, prune=True, dry_run=False):
         print(f"Neon collection '{COLLECTION_NAME}' is already up to date.")
         return vector_store
 
-    embedding_seconds = 0.0
-    write_seconds = 0.0
-    hashes = list(texts_by_hash)
-    saved_chunks = 0
-    for embed_start in range(0, len(hashes), EMBEDDING_BATCH_SIZE):
-        batch_hashes = hashes[embed_start : embed_start + EMBEDDING_BATCH_SIZE]
-        embed_started = perf_counter()
-        batch_embeddings = embeddings.embed_documents(
-            [texts_by_hash[digest] for digest in batch_hashes]
+    embedding_wall_seconds, embedding_worker_seconds, write_seconds, saved_chunks = (
+        await embed_and_write_batches(
+            embeddings,
+            vector_store,
+            chunks_by_hash,
         )
-        embedding_seconds += perf_counter() - embed_started
-
-        batch_chunks = []
-        embeddings_by_id = {}
-        for digest, vector in zip(batch_hashes, batch_embeddings, strict=False):
-            for chunk in chunks_by_hash[digest]:
-                batch_chunks.append(chunk)
-                embeddings_by_id[chunk.id] = vector
-
-        write_started = perf_counter()
-        write_chunks(vector_store, batch_chunks, embeddings_by_id)
-        write_seconds += perf_counter() - write_started
-        saved_chunks += len(batch_chunks)
-        saved = min(embed_start + len(batch_hashes), len(hashes))
-        print(f"Embedded {saved}/{len(hashes)} texts; saved {saved_chunks} chunks.")
+    )
 
     prune_seconds = 0.0
     if prune and stale:
@@ -229,10 +283,17 @@ def create_vector_store(chunks, prune=True, dry_run=False):
     )
     print(
         f"Timing: store setup={store_init_seconds:.2f}s; "
-        f"existing-ID lookup={lookup_seconds:.2f}s; embeddings={embedding_seconds:.2f}s; "
+        f"existing-ID lookup={lookup_seconds:.2f}s; "
+        f"embedding wall time={embedding_wall_seconds:.2f}s "
+        f"(combined worker time={embedding_worker_seconds:.2f}s); "
         f"Neon writes={write_seconds:.2f}s; prune={prune_seconds:.2f}s."
     )
     return vector_store
+
+
+def create_vector_store(chunks, prune=True, dry_run=False):
+    """Synchronous compatibility wrapper for scripts and existing callers."""
+    return asyncio.run(acreate_vector_store(chunks, prune=prune, dry_run=dry_run))
 
 
 def parse_args(argv=None):

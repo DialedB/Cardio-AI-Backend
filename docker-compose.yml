@@ -97,7 +97,7 @@ services:
       - loki_data:/loki
       - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     networks:
       - llm-obs-lab
 

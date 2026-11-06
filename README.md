@@ -134,10 +134,31 @@ current PDF input. Treat the configured collection as belonging to this corpus
 when using the default behavior. Pass `--no-prune` to retain rows absent from
 the current input.
 
+Ingestion now embeds batches asynchronously, with up to four concurrent batches
+by default. Set `EMBEDDING_CONCURRENCY` to change this limit. Neon writes remain
+bounded and are applied after each concurrent embedding group. The reported
+embedding wall time measures elapsed time across those groups; combined worker
+time is the sum of their individual embedding durations.
+
 `--dry-run` reports the current, new, unchanged, and stale chunk counts and
 estimates embedding tokens without requesting embeddings or writing data. It
 still connects to Neon to look up existing chunk IDs. If `tiktoken` is not
 available, the token estimate is approximate.
+
+### Comparing synchronous and asynchronous embedding throughput
+
+The benchmark compares sync and async embedding on the same local PDF chunks,
+without connecting to or writing to Neon. This sample uses four batches so the
+async run can use all four concurrent slots:
+
+```powershell
+python ai/benchmark_embeddings.py --max-chunks 400 --batch-size 100 --concurrency 4 --repeats 2
+```
+
+The JSON output reports elapsed time and texts per second for each mode, plus
+the async speedup. Adjust `--max-chunks`, `--batch-size`, `--concurrency`, or
+`--repeats` as needed. Each mode and repeat sends embedding requests to the
+configured API and may incur charges. Use the same settings when comparing runs.
 
 ### Neon full-text search schema
 
@@ -181,8 +202,9 @@ python RAG_Pipeline.py
 
 ### RAG telemetry
 
-`ai/RAG_Pipeline.py` exports OpenTelemetry traces, metrics, and logs to the local
-Collector. Traces cover the request, moderation, query generation, retrieval, rank
+`ai/rag_telemetry.py` configures OpenTelemetry traces, metrics, and logs for the
+RAG pipeline and exports them to the local Collector. Traces cover the request,
+moderation, query generation, retrieval, rank
 fusion, answer generation, and response review. Metrics include request outcomes and
 duration, operation latency and errors, search-result/fused/selected document counts,
 LLM calls, and provider-reported token usage. Token metrics are emitted only when the
@@ -275,7 +297,9 @@ docker compose up --build -d
 ```
 
 The Collector accepts OTLP gRPC on port `4317` and OTLP HTTP on `4318`. Prometheus,
-Grafana, Jaeger, and Loki are exposed on ports `9090`, `3000`, `16686`, and `3100`.
+Grafana, and Jaeger are exposed on ports `9090`, `3000`, and `16686`. Loki's API is
+bound to host loopback on port `3100`; other Compose services reach it over the
+internal network. Loki stores data in the `loki_data` volume mounted at `/loki`.
 The RAG CLI runs separately on the host; its default OTLP endpoint reaches the published
 Collector port. Run the CLI and submit a question to populate the RAG dashboard.
 
@@ -328,6 +352,9 @@ collection filtering, database-row mapping, and the no-results case. The ingesti
 stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
 The RAG pipeline error tests replace models, retrievers, and safety calls with fakes and check
 the fail-closed and fallback behavior of each query step.
+At pytest session start, `conftest.py` checks Grafana's health endpoint and the configured OTLP
+Collector port. If either is unavailable, RAG telemetry exporters are disabled for that test run
+to prevent exporter retry noise. Pytest prints both availability results in its session header.
 GitHub Actions installs the AI requirements and runs the test suite for pull requests.
 
 ## Development Workflow
