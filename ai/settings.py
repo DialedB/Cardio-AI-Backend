@@ -21,6 +21,7 @@ COLLECTION_NAME = os.getenv("NEON_VECTOR_COLLECTION", "ai_health_documents_v3")
 CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "100"))
 EMBEDDING_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "1000")))
+EMBEDDING_CONCURRENCY = max(1, int(os.getenv("EMBEDDING_CONCURRENCY", "4")))
 NEON_WRITE_BATCH_SIZE = max(1, int(os.getenv("NEON_WRITE_BATCH_SIZE", "500")))
 # Query-time OpenAI calls: a stalled request raises after the timeout instead of hanging.
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
