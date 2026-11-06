@@ -13,3 +13,4 @@ psycopg[binary]
 opentelemetry-api==1.45.2
 opentelemetry-sdk==1.45.2
 opentelemetry-exporter-otlp-proto-grpc==1.45.2
+opentelemetry-instrumentation-logging==0.66b2

@@ -1,4 +1,5 @@
 import pytest
+
 from ai.benchmark_embeddings import run_async_benchmark, run_sync_benchmark
 
 
