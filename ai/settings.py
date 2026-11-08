@@ -26,6 +26,10 @@ NEON_WRITE_BATCH_SIZE = max(1, int(os.getenv("NEON_WRITE_BATCH_SIZE", "500")))
 # Query-time OpenAI calls: a stalled request raises after the timeout instead of hanging.
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 OPENAI_MAX_RETRIES = max(0, int(os.getenv("OPENAI_MAX_RETRIES", "2")))
+RAG_MODEL_NAME = os.getenv("RAG_MODEL_NAME", "gpt-4o-mini")
+SAFETY_REVIEW_MODEL = os.getenv("SAFETY_REVIEW_MODEL", "gpt-4o-mini")
+# Most recent chat messages sent to the models with each question.
+RAG_MAX_HISTORY_MESSAGES = max(1, int(os.getenv("RAG_MAX_HISTORY_MESSAGES", "20")))
 
 
 def get_embeddings() -> OpenAIEmbeddings:

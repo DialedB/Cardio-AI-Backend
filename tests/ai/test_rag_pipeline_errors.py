@@ -1,118 +1,84 @@
-"""Fail-closed behavior of RAG_Pipeline.ask_question when a pipeline step fails.
+"""Fail-closed and fallback behavior when a RagService pipeline step fails."""
 
-RAG_Pipeline builds its clients and checks the Neon schema at import time, so the
-fixture imports it with the Neon pieces stubbed and fake credentials. No network
-calls are made: every model, retriever, and safety call is replaced per test.
-"""
-
-import importlib
-import sys
-from types import SimpleNamespace
-
-import full_text_schema
-import langchain_postgres
 import pytest
-from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
+import rag_service
+from langchain_core.messages import AIMessage, HumanMessage
+from rag_fakes import DRAFT, QUESTION, SOURCE, FakeModeration, FakeRunnable, build_service, message
+from rag_service import CHECK_UNAVAILABLE, add_disclaimer
+
+UNAVAILABLE = add_disclaimer(CHECK_UNAVAILABLE)
 
 
-class EmptyRetriever(BaseRetriever):
-    def _get_relevant_documents(self, query, *, run_manager):
-        return []
+def assert_failed_closed(result, outcome="error", stage=None):
+    assert result.answer == UNAVAILABLE
+    assert result.outcome == outcome
+    assert result.record_in_history is False
+    assert result.review_approved is None
+    if stage is not None:
+        assert result.stage == stage
 
 
-class FakeVectorStore:
-    def __init__(self, **_kwargs):
-        pass
+def test_successful_question_is_answered_and_recordable():
+    result = build_service().answer(QUESTION)
 
-    def as_retriever(self, **_kwargs):
-        return EmptyRetriever()
-
-
-class FakeRunnable:
-    """Returns (or raises) the given outcomes in order and records its inputs."""
-
-    def __init__(self, *outcomes):
-        self.outcomes = list(outcomes)
-        self.calls = []
-
-    def invoke(self, value, *_args, **_kwargs):
-        self.calls.append(value)
-        outcome = self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
+    assert result.answer == add_disclaimer(DRAFT)
+    assert result.outcome == "answered"
+    assert result.record_in_history is True
+    assert result.review_approved is True
 
 
-def message(text):
-    return SimpleNamespace(content=text)
+def test_input_moderation_failure_fails_closed_before_any_model_call():
+    def outage(_text):
+        raise ConnectionError("moderation unavailable")
+
+    model = FakeRunnable(message(DRAFT))
+    service = build_service(moderation_client=FakeModeration(outage), model=model)
+
+    result = service.answer(QUESTION)
+
+    assert_failed_closed(result, outcome="safety_fallback", stage="input moderation")
+    assert model.calls == []
 
 
-SOURCE = Document(page_content="Regular exercise supports heart health.", metadata={})
+def test_retrieval_failure_fails_closed():
+    service = build_service(retriever=FakeRunnable(ConnectionError("Neon unavailable")))
+
+    assert_failed_closed(service.answer(QUESTION), stage="retrieval")
 
 
-@pytest.fixture
-def rag(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/test")
-    monkeypatch.setattr(full_text_schema, "require_full_text_search_schema", lambda: None)
-    monkeypatch.setattr(langchain_postgres, "PGVector", FakeVectorStore)
-    sys.modules.pop("RAG_Pipeline", None)
-    module = importlib.import_module("RAG_Pipeline")
+def test_fusion_failure_fails_closed(monkeypatch):
+    def broken_fusion(*_args, **_kwargs):
+        raise ValueError("bad results")
 
-    monkeypatch.setattr(module, "moderate_text", lambda _text: False)
-    monkeypatch.setattr(
-        module, "safe_response", lambda _question, answer, _context: module.add_disclaimer(answer)
-    )
-    monkeypatch.setattr(module, "model", FakeRunnable(message("Exercise helps the heart.")))
-    monkeypatch.setattr(
-        module, "model_with_tools", FakeRunnable(SimpleNamespace(queries=["variation"]))
-    )
-    monkeypatch.setattr(module, "retriever", FakeRunnable([SOURCE]))
-    yield module
-    sys.modules.pop("RAG_Pipeline", None)
+    monkeypatch.setattr(rag_service, "reciprocal_rank_fusion", broken_fusion)
+
+    assert_failed_closed(build_service().answer(QUESTION), stage="fusion")
 
 
-QUESTION = "How does exercise affect heart health?"
+def test_generation_failure_fails_closed():
+    service = build_service(model=FakeRunnable(TimeoutError("request timed out")))
+
+    assert_failed_closed(service.answer(QUESTION), stage="generation")
 
 
-def test_successful_question_is_answered_and_recorded(rag):
-    answer = rag.ask_question(QUESTION)
-
-    assert answer == rag.add_disclaimer("Exercise helps the heart.")
-    assert len(rag.chat_history) == 2
-
-
-def test_retrieval_failure_fails_closed_without_recording_history(rag):
-    rag.retriever = FakeRunnable(ConnectionError("Neon unavailable"))
-
-    answer = rag.ask_question(QUESTION)
-
-    assert answer == rag.add_disclaimer(rag.CHECK_UNAVAILABLE)
-    assert rag.chat_history == []
-
-
-def test_generation_failure_fails_closed(rag):
-    rag.model = FakeRunnable(TimeoutError("request timed out"))
-
-    assert rag.ask_question(QUESTION) == rag.add_disclaimer(rag.CHECK_UNAVAILABLE)
-    assert rag.chat_history == []
-
-
-def test_text_blocks_are_joined_into_the_answer(rag):
-    rag.model = FakeRunnable(
-        message(
-            [
-                {"type": "reasoning", "reasoning": "internal"},
-                {"type": "text", "text": "Exercise helps "},
-                "the heart.",
-                {"type": "text", "text": None},
-            ]
+def test_text_blocks_are_joined_into_the_answer():
+    service = build_service(
+        model=FakeRunnable(
+            message(
+                [
+                    {"type": "reasoning", "reasoning": "internal"},
+                    {"type": "text", "text": "Exercise helps "},
+                    "the heart.",
+                    {"type": "text", "text": None},
+                ]
+            )
         )
     )
 
-    assert rag.ask_question(QUESTION) == rag.add_disclaimer("Exercise helps the heart.")
-    assert len(rag.chat_history) == 2
+    result = service.answer(QUESTION)
+
+    assert result.answer == add_disclaimer("Exercise helps the heart.")
+    assert result.record_in_history is True
 
 
 @pytest.mark.parametrize(
@@ -128,67 +94,49 @@ def test_text_blocks_are_joined_into_the_answer(rag):
         [{"type": "text", "text": "Partial"}, {"type": "refusal", "refusal": "Can't help."}],
     ],
 )
-def test_empty_non_text_or_refused_generation_fails_closed(rag, content):
-    rag.model = FakeRunnable(message(content))
+def test_empty_non_text_or_refused_generation_fails_closed(content):
+    service = build_service(model=FakeRunnable(message(content)))
 
-    assert rag.ask_question(QUESTION) == rag.add_disclaimer(rag.CHECK_UNAVAILABLE)
-    assert rag.chat_history == []
-
-
-def test_safety_review_failure_fails_closed_without_recording_history(rag):
-    def unavailable_review(*_args):
-        raise RuntimeError("reviewer unavailable")
-
-    rag.safe_response = unavailable_review
-
-    assert rag.ask_question(QUESTION) == rag.add_disclaimer(rag.CHECK_UNAVAILABLE)
-    assert rag.chat_history == []
+    assert_failed_closed(service.answer(QUESTION))
 
 
-def test_multi_query_failure_falls_back_to_the_question_alone(rag):
-    rag.model_with_tools = FakeRunnable(RuntimeError("structured output failed"))
+def test_safety_review_failure_fails_closed():
+    service = build_service(reviewer=FakeRunnable(RuntimeError("reviewer unavailable")))
 
-    answer = rag.ask_question(QUESTION)
-
-    assert answer == rag.add_disclaimer("Exercise helps the heart.")
-    assert rag.retriever.calls == [QUESTION]
+    assert_failed_closed(service.answer(QUESTION), outcome="safety_fallback")
 
 
-def test_reformulation_failure_searches_with_the_original_question(rag):
-    rag.chat_history.extend([rag.HumanMessage(content="Earlier"), rag.AIMessage(content="Reply")])
-    rag.model = FakeRunnable(RuntimeError("reformulation failed"), message("Exercise helps."))
+def test_multi_query_failure_falls_back_to_the_question_alone():
+    retriever = FakeRunnable([SOURCE])
+    service = build_service(
+        query_generator=FakeRunnable(RuntimeError("structured output failed")),
+        retriever=retriever,
+    )
 
-    answer = rag.ask_question(QUESTION)
+    result = service.answer(QUESTION)
 
-    assert answer == rag.add_disclaimer("Exercise helps.")
-    assert rag.retriever.calls[0] == QUESTION
-
-
-def test_chat_loop_survives_unexpected_errors_and_exits_on_eof(rag, monkeypatch, capsys):
-    inputs = iter([QUESTION])
-
-    def fake_input(_prompt):
-        try:
-            return next(inputs)
-        except StopIteration:
-            raise EOFError from None
-
-    def broken_ask(_question):
-        raise RuntimeError("unexpected")
-
-    monkeypatch.setattr("builtins.input", fake_input)
-    rag.ask_question = broken_ask
-
-    rag.start_chat()
-
-    output = capsys.readouterr().out
-    assert rag.CHECK_UNAVAILABLE in output
-    assert "Goodbye!" in output
+    assert result.answer == add_disclaimer(DRAFT)
+    assert retriever.calls == [QUESTION]
 
 
-def test_openai_clients_use_configured_timeout_and_retries(rag):
-    for client in (rag.review_model, rag.embedding_model):
-        assert client.request_timeout == rag.OPENAI_TIMEOUT_SECONDS
-        assert client.max_retries == rag.OPENAI_MAX_RETRIES
-    assert rag.moderation_client.timeout == rag.OPENAI_TIMEOUT_SECONDS
-    assert rag.moderation_client.max_retries == rag.OPENAI_MAX_RETRIES
+def test_reformulation_failure_searches_with_the_original_question():
+    retriever = FakeRunnable([SOURCE])
+    service = build_service(
+        model=FakeRunnable(RuntimeError("reformulation failed"), message("Exercise helps.")),
+        retriever=retriever,
+    )
+    history = [HumanMessage(content="Earlier"), AIMessage(content="Reply")]
+
+    result = service.answer(QUESTION, history)
+
+    assert result.answer == add_disclaimer("Exercise helps.")
+    assert retriever.calls[0] == QUESTION
+
+
+def test_unexpected_error_fails_closed_instead_of_raising(monkeypatch):
+    def broken_guard(_text):
+        raise TypeError("bug in the pipeline")
+
+    monkeypatch.setattr(rag_service, "contains_prompt_injection", broken_guard)
+
+    assert_failed_closed(build_service().answer(QUESTION))
