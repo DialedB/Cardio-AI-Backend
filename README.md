@@ -241,7 +241,7 @@ that names the step which decided the result.
 | `APP_ENVIRONMENT` / `APP_ENV` | `dev` | Deployment environment resource attribute |
 | `OTEL_METRIC_EXPORT_INTERVAL_MS` | `5000` | Metric export interval in milliseconds |
 | `CARDIO_RAG_TELEMETRY_DISABLED` | unset | Set to `true`, `1`, or `yes` to disable telemetry exports |
-| `RAG_MODEL_NAME` | `gpt-4o-mini` | Main RAG model |
+| `RAG_MODEL_NAME` | `gpt-6-astra` | Main RAG model |
 | `SAFETY_REVIEW_MODEL` | `gpt-4o-mini` | Safety reviewer model |
 | `RAG_MAX_HISTORY_MESSAGES` | `20` | Most recent chat messages sent to the models |
 
