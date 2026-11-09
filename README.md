@@ -99,14 +99,24 @@ embeddings, and full-text retrieval. It runs separately from the FastAPI backend
   embeddings, and stores them in the configured Neon PGVector collection.
 - `ai/full_text_retriever.py` searches chunk text using Postgres full-text
   search and returns ranked documents.
-- `ai/RAG_Pipeline.py` combines full-text and vector retrieval, generates
-  query variations, merges results with reciprocal-rank fusion, and creates
-  answers using retrieved source excerpts. If retrieval, answer generation, or
-  the safety review fails, it returns the fail-closed "safety checks are
-  unavailable" message instead of crashing; query rewriting and query
-  variations fall back to the original question. OpenAI calls time out after
-  `OPENAI_TIMEOUT_SECONDS` (default 30) with `OPENAI_MAX_RETRIES` retries
-  (default 2).
+- `ai/rag_service.py` is the stateless pipeline. `RagService.answer(question, history)`
+  combines full-text and vector retrieval, generates query variations, merges
+  results with reciprocal-rank fusion, and creates answers using retrieved source
+  excerpts. It returns a structured `AnswerResult` and keeps no conversation state.
+  Importing it makes no OpenAI or Neon connection; `RagService.from_settings()` does
+  that. If retrieval, answer generation, or the safety review fails, it returns the
+  fail-closed "safety checks are unavailable" message instead of raising; query
+  rewriting and query variations fall back to the original question. OpenAI calls
+  time out after `OPENAI_TIMEOUT_SECONDS` (default 30) with `OPENAI_MAX_RETRIES`
+  retries (default 2). Only the most recent `RAG_MAX_HISTORY_MESSAGES` messages
+  (default 20) are sent to the models.
+- `ai/rag_adapter.py` implements the shared `RAGInterface` on top of `RagService`.
+  Callers pass history as `metadata["history"]`, a list of
+  `{"role": "user" | "assistant", "content": str}` items, and should store an
+  exchange only when the response metadata has `record_in_history` set to true.
+  Sources are returned only for answered questions and never include absolute paths.
+- `ai/RAG_Pipeline.py` is the interactive test CLI. It holds the chat history for
+  one session and prints each result.
 - `ai/settings.py` provides the shared model, chunking, collection, and database
   settings.
 - `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
@@ -194,11 +204,15 @@ python -m pip install -r requirements.txt
 The pipeline reads its secrets from the process environment, the repository-root
 `.env.local`, then `ai/.env.local` and `ai/.env`. Configure `OPENAI_API_KEY` and
 `DATABASE_URL` (or `DATABASE_URL_UNPOOLED`) before starting it. Run from the `ai/`
-directory after starting the observability stack:
+directory:
 
 ```bash
 python RAG_Pipeline.py
 ```
+
+The observability stack is optional. Without a running Collector the pipeline still
+works, but exporters log connection errors; set `CARDIO_RAG_TELEMETRY_DISABLED=true`
+to turn exports off.
 
 ### RAG telemetry
 
@@ -212,8 +226,12 @@ model response includes usage metadata. Prometheus and Grafana show no RAG serie
 the pipeline has processed requests.
 
 The instrumented code does not attach prompt, answer, or retrieved-text content to span
-attributes. The interactive CLI still prints its normal question, query, document-preview,
-and answer output to the console.
+attributes. Pipeline logs name the failed step and error type only. Importing
+`ai/rag_service.py` still configures this telemetry globally, because `ai/rag_telemetry.py`
+sets it up at import time. The interactive CLI prints the question, queries, document
+previews with their file and page, and answer to the console together once the answer is
+ready, followed by a line such as `[outcome: safety_rejected | decided by: safety review]`
+that names the step which decided the result.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -222,7 +240,10 @@ and answer output to the console.
 | `APP_VERSION` | `unknown` | Service version resource attribute |
 | `APP_ENVIRONMENT` / `APP_ENV` | `dev` | Deployment environment resource attribute |
 | `OTEL_METRIC_EXPORT_INTERVAL_MS` | `5000` | Metric export interval in milliseconds |
+| `CARDIO_RAG_TELEMETRY_DISABLED` | unset | Set to `true`, `1`, or `yes` to disable telemetry exports |
 | `RAG_MODEL_NAME` | `gpt-6-astra` | Main RAG model |
+| `SAFETY_REVIEW_MODEL` | `gpt-4o-mini` | Safety reviewer model |
+| `RAG_MAX_HISTORY_MESSAGES` | `20` | Most recent chat messages sent to the models |
 
 The telemetry stack is part of the root `docker-compose.yml`. Its configuration and
 the provisioned **Cardio RAG Pipeline** dashboard are under `config/`. See Grafana at
@@ -350,8 +371,9 @@ ruff check backend saferag shared tests
 The AI tests do not require a live Neon database. The retriever tests check query parameters,
 collection filtering, database-row mapping, and the no-results case. The ingestion tests check
 stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
-The RAG pipeline error tests replace models, retrievers, and safety calls with fakes and check
-the fail-closed and fallback behavior of each query step.
+The RAG pipeline tests build `RagService` with fake models, retrievers, and moderation, and check
+the fail-closed and fallback behavior of each query step, conversation isolation, safety review
+outcomes, the `RAGInterface` adapter, and the CLI.
 At pytest session start, `conftest.py` checks Grafana's health endpoint and the configured OTLP
 Collector port. If either is unavailable, RAG telemetry exporters are disabled for that test run
 to prevent exporter retry noise. Pytest prints both availability results in its session header.
