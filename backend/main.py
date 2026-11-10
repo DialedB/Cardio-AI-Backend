@@ -1,5 +1,7 @@
 """FastAPI application composition root."""
 
+from urllib.request import Request
+
 from fastapi import FastAPI
 
 from backend.api import auth, conversations, documents, health, query, users
@@ -16,6 +18,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.settings = app_settings
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+
+        # TODO: Add the three headers required in every environment.
+        # Use response.headers["Header-Name"] = "required value".
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        if app_settings.app_env != "local":
+            # TODO: Add Strict-Transport-Security here.
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+            pass
+
+        return response
 
     for router in (
         health.router,
