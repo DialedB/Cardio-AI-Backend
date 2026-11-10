@@ -1,3 +1,4 @@
+
 name: CI
 
 on:
@@ -9,6 +10,25 @@ permissions:
 jobs:
   backend-and-saferag:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL:  postgresql+psycopg://postgres:postgres@localhost:5432/test_db
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,6 +44,9 @@ jobs:
 
       - name: Run lint checks
         run: ruff check backend saferag shared tests
+
+      - name: Run database migrations
+        run: alembic upgrade head
 
       - name: Run backend, SafeRAG, and AI tests
         run: pytest
