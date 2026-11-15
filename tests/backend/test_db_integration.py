@@ -102,7 +102,7 @@ def test_commit_failure_rolls_back_changes(
     db_session_factory: sessionmaker[Session],
     records_table: Table,
 ) -> None:
-    """A failed commit rolls back the failed transaction."""
+    """A database constraint violation rolls back the failed transaction."""
 
     session = db_session_factory()
 
@@ -117,12 +117,10 @@ def test_commit_failure_rolls_back_changes(
     failing_session = db_session_factory()
 
     try:
-        failing_session.execute(
-            insert(records_table).values(value="unique record")
-        )
-
         with pytest.raises(IntegrityError):
-            failing_session.commit()
+            failing_session.execute(
+                insert(records_table).values(value="unique record")
+            )
 
         failing_session.rollback()
     finally:
@@ -138,7 +136,6 @@ def test_commit_failure_rolls_back_changes(
         assert result == ["unique record"]
     finally:
         verification_session.close()
-
 
 def test_each_session_factory_call_creates_a_separate_session(
     db_session_factory: sessionmaker[Session],
