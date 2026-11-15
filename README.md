@@ -117,6 +117,9 @@ embeddings, and full-text retrieval. It runs separately from the FastAPI backend
   Sources are returned only for answered questions and never include absolute paths.
 - `ai/RAG_Pipeline.py` is the interactive test CLI. It holds the chat history for
   one session and prints each result.
+- `ai/eval_queries.py` runs the generated query set in `ai/eval/queries.jsonl` through
+  `RagService.answer` and compares each outcome with the expected one. See
+  [Evaluating with generated queries](#evaluating-with-generated-queries).
 - `ai/settings.py` provides the shared model, chunking, collection, and database
   settings.
 - `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
@@ -169,6 +172,36 @@ The JSON output reports elapsed time and texts per second for each mode, plus
 the async speedup. Adjust `--max-chunks`, `--batch-size`, `--concurrency`, or
 `--repeats` as needed. Each mode and repeat sends embedding requests to the
 configured API and may incur charges. Use the same settings when comparing runs.
+
+### Evaluating with generated queries
+
+`ai/eval/queries.jsonl` holds one query per line with the outcome the pipeline should
+produce (`answered`, `out_of_scope`, `safety_rejected`, and so on) and, where it matters,
+the step that should decide it. The categories are factual questions, lay wording,
+multi-turn follow-ups, off-corpus questions, personal diagnosis and prescription requests,
+prompt-injection attempts, empty input, other languages, and benign questions that the
+input filters should not refuse. The factual questions were written for the papers listed
+by the corpus source list, so results depend on which corpus is ingested.
+
+Check only the deterministic input filters, with no OpenAI key or database:
+
+```bash
+python ai/eval_queries.py --filters-only
+```
+
+Run the full pipeline against the configured database and models:
+
+```bash
+python ai/eval_queries.py
+python ai/eval_queries.py --category factual --limit 5
+```
+
+Each live query makes the same OpenAI calls as one chat question and may incur charges.
+Every run writes `results.jsonl` and `summary.md` to a timestamped directory under
+`ai/eval/results/`, which Git ignores. The summary lists pass counts per category, every
+mismatch, and answers that decline in words while the outcome label says `answered`. A
+failed expectation is a finding to review, not necessarily a pipeline bug; the command
+exits with 0 either way.
 
 ### Neon full-text search schema
 
@@ -374,6 +407,8 @@ stable chunk IDs, deduplication within one source, and keeping identical text fr
 The RAG pipeline tests build `RagService` with fake models, retrievers, and moderation, and check
 the fail-closed and fallback behavior of each query step, conversation isolation, safety review
 outcomes, the `RAGInterface` adapter, and the CLI.
+The evaluation tests check that `ai/eval/queries.jsonl` is valid, that its filter categories
+match the current input filters, and that the runner works against the same fakes.
 At pytest session start, `conftest.py` checks Grafana's health endpoint and the configured OTLP
 Collector port. If either is unavailable, RAG telemetry exporters are disabled for that test run
 to prevent exporter retry noise. Pytest prints both availability results in its session header.
