@@ -9,7 +9,7 @@ description = "CardioSmart backend modular monolith and SafeRAG boundary"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115,<1.0",
+    "fastapi>=0.121,<1.0",
     "pydantic>=2.9,<3.0",
     "pydantic-settings>=2.5,<3.0",
     "psycopg[binary]>=3.2,<4.0",
