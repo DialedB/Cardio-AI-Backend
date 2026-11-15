@@ -24,3 +24,6 @@ db/
 *.sqlite
 *.sqlite3
 *.yml
+
+# Evaluation run output
+eval/results/
