@@ -1,13 +1,11 @@
 
 """Tests for database session lifecycle and transaction handling."""
-
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
-from sqlalchemy.orm import Session
-
 from backend.api.deps import get_db
+from fastapi import FastAPI
+
 from backend.db.session import session_scope
 
 
