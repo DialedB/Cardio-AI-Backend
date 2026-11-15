@@ -1,30 +1,33 @@
 # RAG corpus source list
 
-PDFs are git-ignored under `ai/`, so this directory records which documents belong in the
-corpus. [`sources.csv`](sources.csv) has one row per PDF. The files themselves live in the
-local, git-ignored `ai/docs/` directory and are shared outside Git.
+PDFs are git-ignored under `ai/`, so this directory tracks source metadata without committing
+the documents. [`sources.csv`](sources.csv) retains the previously catalogued sources and adds
+the newly supplied PDFs found in `ai/docs/`. It is not yet a complete inventory of the earlier
+team corpus. The PDF files remain local and are shared outside Git.
 
-The list currently holds the papers added in November 2026. Documents that were already in
-the team's batch before then are not listed yet.
+The new rows record the contributor(s) supplied for each PDF. Where Karim and Danyil both
+listed the same file, it appears once and credits both. The existing catalog entries have not
+been removed or replaced.
 
 ## Columns
 
 | Column | Meaning |
 | --- | --- |
 | `filename` | File name under `ai/docs/`. Shown to users as the citation. |
-| `title`, `first_author`, `journal`, `year` | Bibliographic details from Europe PMC. |
+| `title`, `first_author`, `journal`, `year` | Bibliographic details from the source record or PDF where available. |
 | `doi_url` | Link to the published article. |
 | `pmcid` | PubMed Central ID. |
-| `licence` | Licence code from the PMC open-data record. |
+| `licence` | Licence shown in the source record or PDF; `Unverified` means it still needs checking. |
 | `topic` | Coverage area, used to spot gaps. |
 | `pages` | Page count of the downloaded PDF. |
 | `added_by`, `date_added` | GitHub handle and date. |
 
 ## Selection rules
 
-- **Open access with a stated licence.** Every current row is CC BY, confirmed in the PMC
-  open-data record for that article. Ask the AI codeowner before adding anything with a
-  non-commercial, no-derivatives, or unclear licence.
+- **Check reuse rights before ingestion or redistribution.** Do not assume a PDF is reusable
+  because it is available online. Verify the exact licence and version from the publisher or
+  repository record. `Unverified` entries need review; ask the AI codeowner before using a
+  non-commercial, no-derivatives, or unclear-licence document.
 - **Text-based PDFs only.** Ingestion uses `PyPDFLoader`, which does not run OCR. Scanned
   documents produce empty chunks.
 - **Educational scope.** Prefer guidelines, reviews, and meta-analyses over single trials and
@@ -49,7 +52,8 @@ For example, `PMC7021657` version 1 is at
 ## Adding a paper
 
 1. Check it against the selection rules.
-2. Save the PDF in `ai/docs/` and add a row to `sources.csv`.
+2. Save the PDF in `ai/docs/`, check that it is not already represented by filename or DOI,
+   then add one row to `sources.csv` with the contributor credit and verified source metadata.
 3. Run `python ai/ingestion_pipeline.py --dry-run` and check the chunk counts.
 4. Open a pull request with the `sources.csv` change. The AI codeowner decides when the
    shared collection is re-ingested.

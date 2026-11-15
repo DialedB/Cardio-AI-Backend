@@ -121,9 +121,10 @@ embeddings, and full-text retrieval. It runs separately from the FastAPI backend
   settings.
 - `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
   by the full-text retriever.
-- `ai/corpus/sources.csv` lists source PDFs with their DOI, licence, and topic, because
-  the PDFs themselves are not tracked in Git. `ai/corpus/README.md` has the selection
-  rules and download instructions. The list does not yet cover the team's original batch.
+- `ai/corpus/sources.csv` tracks bibliographic details, contributor credits, and licence status
+  for catalogued source PDFs; the PDFs themselves are not tracked in Git. See
+  [`ai/corpus/README.md`](ai/corpus/README.md) for selection rules and download instructions.
+  
 
 ### Ingestion behavior
 
