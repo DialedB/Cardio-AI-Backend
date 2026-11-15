@@ -28,6 +28,7 @@ jobs:
 
     env:
       DATABASE_URL:  postgresql+psycopg://postgres:postgres@localhost:5432/test_db
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/test_db
 
     steps:
       - name: Check out repository
