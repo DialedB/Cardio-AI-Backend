@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from backend.api.deps import get_db
-from fastapi import FastAPI
 
+from fastapi import FastAPI
 from backend.db.session import session_scope
 
 
