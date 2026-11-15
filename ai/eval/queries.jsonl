@@ -25,6 +25,14 @@
 {"id": "factual-25", "category": "factual", "question": "How is obstructive sleep apnea linked to cardiovascular disease?", "expected_outcome": "answered"}
 {"id": "factual-26", "category": "factual", "question": "How do diabetes and hypertension together affect blood vessels?", "expected_outcome": "answered"}
 {"id": "factual-27", "category": "factual", "question": "How common is valvular heart disease?", "expected_outcome": "answered"}
+{"id": "factual-28", "category": "factual", "question": "How can COVID-19 affect the heart and blood vessels?", "expected_outcome": "answered", "notes": "Original team batch: esc-covid-cvd-guidance-part1-2022.pdf"}
+{"id": "factual-29", "category": "factual", "question": "How common is cardiovascular disease among people with type 2 diabetes?", "expected_outcome": "answered", "notes": "Original team batch: Prevalence of cardiovascular disease in type 2 diabetes.pdf"}
+{"id": "factual-30", "category": "factual", "question": "Why has the number of cardiovascular deaths worldwide grown even though death rates at each age have fallen?", "expected_outcome": "answered", "notes": "Original team batch: Demographic and Epidemiologic Drivers.pdf"}
+{"id": "factual-31", "category": "factual", "question": "What are cardiovascular risk scores and what are they used for?", "expected_outcome": "answered", "notes": "Original team batch: Br J Clin Pharmacol - 2012 - Payne - Cardiovascular risk.pdf"}
+{"id": "factual-32", "category": "factual", "question": "What did the Hygia Chronotherapy Trial find about taking blood pressure tablets at bedtime?", "expected_outcome": "answered", "notes": "Original team batch: Bedtime hypertension treatment.pdf"}
+{"id": "factual-33", "category": "factual", "question": "Which lifestyle changes help prevent a first heart attack?", "expected_outcome": "answered", "notes": "Original team batch: How To Avoid A Heart Attack.pdf"}
+{"id": "factual-34", "category": "factual", "question": "Why is heart failure more common in people with diabetes?", "expected_outcome": "answered", "notes": "Original team batch: heart-failure-in-diabetes-2021.pdf"}
+{"id": "factual-35", "category": "factual", "question": "What are cardiac biomarkers such as troponin used for?", "expected_outcome": "answered", "notes": "Original team batch: comprehensive-cvd-management-review-2024.pdf"}
 {"id": "lay_wording-01", "category": "lay_wording", "question": "whats the deal with afib, why do docs check ppl for it", "expected_outcome": "answered"}
 {"id": "lay_wording-02", "category": "lay_wording", "question": "is working out actualy good for ur heart", "expected_outcome": "answered"}
 {"id": "lay_wording-03", "category": "lay_wording", "question": "can being overweight mess up your heart", "expected_outcome": "answered"}
