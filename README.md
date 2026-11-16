@@ -117,6 +117,9 @@ embeddings, and full-text retrieval. It runs separately from the FastAPI backend
   Sources are returned only for answered questions and never include absolute paths.
 - `ai/RAG_Pipeline.py` is the interactive test CLI. It holds the chat history for
   one session and prints each result.
+- `ai/evaluate.py` runs the question set in `ai/eval/questions.jsonl` through
+  `RagService.answer` and scores each result. See
+  [Evaluating answer quality](#evaluating-answer-quality).
 - `ai/settings.py` provides the shared model, chunking, collection, and database
   settings.
 - `ai/migrations/0001_add_full_text_search.sql` adds the database schema needed
@@ -172,34 +175,46 @@ configured API and may incur charges. Use the same settings when comparing runs.
 
 ### Evaluating answer quality
 
-`ai/evaluate.py` runs the questions in `ai/eval/questions.jsonl` through the real
-pipeline several times each, because answers vary between runs, and reports per
-question and overall:
+`ai/eval/questions.jsonl` holds one question per line with the behaviour the user
+should see: an answer, "not enough information", a scope or filter refusal, the
+empty-input message, or emergency advice. Where it matters, a question also names
+the step that should decide it, the source files that should be retrieved, facts
+the answer should contain, and earlier chat history. Tags group the questions:
+topic questions for each corpus document, lay wording, multi-turn follow-ups
+(`history`), off-corpus questions, other languages, and `guard` questions for
+personal diagnosis and prescription requests, prompt injection, empty input and
+moderation. Questions marked `known_issue` track open bugs, such as requests the
+regex filters miss (`filter gap`) or wrongly refuse (`over-refusal`); they are
+reported separately from the pass rate.
 
-- whether the result matched the expected behaviour (answered, not enough
-  information, scope or filter refusal, empty input, or emergency advice) and
-  which stage decided it;
+`ai/evaluate.py` runs each question through the real pipeline several times,
+because answers vary between runs, and reports per question and overall:
+
+- whether the result matched the expected behaviour and which step decided it;
 - whether an expected source file was among the retrieved documents;
 - the share of expected facts found in the answer, and whether the answer names
   the expected file;
-- token use per model and an approximate cost.
+- seconds per run, token use per model, and an approximate cost.
 
-Questions marked `known_issue` track open bugs and are reported separately from
-the pass rate. Questions whose expected sources are not in the Neon collection
-are skipped, so ingest new PDFs first. From `ai/`:
+Questions whose expected sources are not in the Neon collection are skipped, so
+copy the PDFs into `ai/docs/` and run ingestion first. From `ai/`:
 
 ```bash
+python evaluate.py --filters-only                           # input filters only; no OpenAI or database
 python evaluate.py --list                                   # questions and ingestion status; no OpenAI calls
-python evaluate.py --runs 3 --output eval/results-baseline.json
-python evaluate.py --runs 3 --compare eval/results-baseline.json
-python evaluate.py --ids covid-heart,risk-scores --runs 1 --model gpt-4o-mini
+python evaluate.py --runs 3 --output eval/results/baseline.json
+python evaluate.py --runs 3 --compare eval/results/baseline.json
+python evaluate.py --tags guard --runs 1 --model gpt-4o-mini
 ```
 
-Each run calls OpenAI and may incur charges; the main model defaults to
-`RAG_MODEL_NAME`. Telemetry exports are off during evaluation unless
-`CARDIO_RAG_TELEMETRY_DISABLED=false` is set. Result files (`eval/results*.json`)
-are ignored by Git. Each question lists its expected source files and facts; add
-questions in the same format.
+`--filters-only` checks that questions expected to stop at the empty-input,
+injection or scope filter stop there and that questions expecting an answer pass
+the filters; it exits with 1 on a mismatch outside the known issues. Other runs
+call OpenAI and may incur charges; the main model defaults to `RAG_MODEL_NAME`.
+Telemetry exports are off during evaluation unless
+`CARDIO_RAG_TELEMETRY_DISABLED=false` is set. Result files under `ai/eval/results/`
+and `ai/eval/results*.json` are ignored by Git. A failed expectation is a finding
+to review, not necessarily a pipeline bug.
 
 ### Neon full-text search schema
 
@@ -406,7 +421,9 @@ keeping identical text from separate sources, and concurrent embedding. The RAG 
 build `RagService` with fake models, retrievers, and moderation (`tests/ai/rag_fakes.py`), and
 check the fail-closed and fallback behavior of each query step, conversation isolation, safety
 review outcomes, the `RAGInterface` adapter, and the CLI. The evaluation tests validate
-`ai/eval/questions.jsonl` and the scoring logic; they do not run the evaluation itself.
+`ai/eval/questions.jsonl`, check that its guard questions match the current input filters, and
+test the scoring logic and run loop with the same fakes; they do not run the evaluation itself.
+When `ai/docs/` is present, they also check that every expected source file exists there.
 At pytest session start, `conftest.py` checks Grafana's health endpoint and the configured OTLP
 Collector port. If either is unavailable, RAG telemetry exporters are disabled for that test run
 to prevent exporter retry noise. Pytest prints both availability results in its session header.

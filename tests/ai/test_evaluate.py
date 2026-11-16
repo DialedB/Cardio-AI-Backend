@@ -6,6 +6,8 @@ from pathlib import Path
 import evaluate
 import pytest
 from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, HumanMessage
+from rag_fakes import DRAFT, FakeRunnable, build_service, message
 from rag_service import FILTER_REFUSAL, INSUFFICIENT_CONTEXT, AnswerResult, add_disclaimer
 
 
@@ -29,17 +31,30 @@ QUESTION = {
 }
 
 
+REPOSITORY_QUESTIONS = evaluate.load_questions()
+
+
 def write_questions(tmp_path, *lines):
     path = tmp_path / "questions.jsonl"
     path.write_text("\n".join(json.dumps(line) for line in lines), encoding="utf-8")
     return path
 
 
-def test_repository_question_file_is_valid():
-    questions = evaluate.load_questions()
+def repository_questions(predicate):
+    """Repository questions matching ``predicate``, excluding known issues, as pytest params."""
+    return [
+        pytest.param(question, id=question["id"])
+        for question in REPOSITORY_QUESTIONS
+        if predicate(question) and not question.get("known_issue")
+    ]
 
-    assert len(questions) >= 30
-    assert {q["expect"] for q in questions} <= set(evaluate.BEHAVIOURS)
+
+def test_repository_question_file_is_valid():
+    tags = {tag for question in REPOSITORY_QUESTIONS for tag in question.get("tags", [])}
+
+    assert len(REPOSITORY_QUESTIONS) >= 100
+    assert {q["expect"] for q in REPOSITORY_QUESTIONS} <= set(evaluate.BEHAVIOURS)
+    assert {"guard", "history", "out of corpus", "lay wording", "multilingual"} <= tags
 
 
 def test_repository_question_sources_exist_in_local_docs():
@@ -47,9 +62,10 @@ def test_repository_question_sources_exist_in_local_docs():
     if not docs.is_dir():
         pytest.skip("ai/docs is not present (PDFs are kept out of git)")
     available = {path.name for path in docs.glob("*.pdf")}
+    expected = {source for q in REPOSITORY_QUESTIONS for source in q.get("sources", [])}
 
-    for question in evaluate.load_questions():
-        assert set(question.get("sources", [])) <= available, question["id"]
+    # A missing file is either a typo in questions.jsonl or a PDF not yet copied to ai/docs.
+    assert sorted(expected - available) == []
 
 
 @pytest.mark.parametrize(
@@ -200,3 +216,113 @@ def test_run_evaluation_scores_every_run_and_passes_history():
     assert all(score.passed for score in scores)
     assert sorted(len(history) for _question, history in service.calls) == [0, 0, 1, 1]
     assert usage == {}
+
+
+def test_invalid_json_is_reported_without_quoting_the_line(tmp_path):
+    path = tmp_path / "questions.jsonl"
+    path.write_text('{"id": "a", "question": "a private question"', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="line 1: invalid JSON") as error:
+        evaluate.load_questions(path)
+
+    assert "private" not in str(error.value)
+
+
+# Input filters (--filters-only): the question file must agree with the current regexes.
+
+
+@pytest.mark.parametrize(
+    "question", repository_questions(lambda q: q.get("stage") in evaluate.FILTER_STAGES)
+)
+def test_filter_questions_are_stopped_at_the_expected_filter(question):
+    assert evaluate.filter_decision(question["question"]) == (question["expect"], question["stage"])
+
+
+@pytest.mark.parametrize(
+    "question", repository_questions(lambda q: q["expect"] in {"answer", "not_enough_info"})
+)
+def test_ordinary_questions_pass_the_input_filters(question):
+    assert evaluate.filter_decision(question["question"]) is None
+
+
+def test_check_filters_leaves_later_steps_undecided():
+    emergency = {"id": "e", "question": "I have chest pain right now.", "expect": "emergency"}
+    missed_scope = {"id": "s", "question": "Which pill is right for me?", "expect": "refuse_scope"}
+
+    assert evaluate.check_filters(emergency) is None
+    assert evaluate.check_filters(missed_scope) is None
+    assert evaluate.check_filters(QUESTION) is True
+    personal_dose = QUESTION | {"question": "What dose of aspirin should I take?"}
+    assert evaluate.check_filters(personal_dose) is False
+
+
+def test_filters_only_needs_no_database_and_fails_on_a_mismatch(tmp_path, monkeypatch, capsys):
+    def no_database():
+        raise AssertionError("--filters-only must not query Neon")
+
+    monkeypatch.setattr(evaluate, "ingested_sources", no_database)
+    ok = write_questions(tmp_path, QUESTION)
+    missed = {
+        "id": "missed",
+        "question": "What are statins?",
+        "expect": "refuse_scope",
+        "stage": "scope filter",
+    }
+    (tmp_path / "bad").mkdir()
+    bad = write_questions(tmp_path / "bad", QUESTION, missed)
+
+    assert evaluate.main(["--filters-only", "--questions", str(ok)]) == 0
+    assert evaluate.main(["--filters-only", "--questions", str(bad)]) == 1
+    assert "FAIL missed" in capsys.readouterr().out
+
+
+# The run loop against the real RagService built with fakes.
+
+
+def test_run_evaluation_with_rag_service_passes_history_and_scores_the_answer():
+    model = FakeRunnable(message("standalone question"), message(DRAFT))
+    follow_up = {
+        "id": "follow-up",
+        "question": "Why?",
+        "expect": "answer",
+        "sources": ["guide.pdf"],
+        "history": [
+            {"role": "user", "content": "What is atrial fibrillation?"},
+            {"role": "assistant", "content": "An irregular heart rhythm."},
+        ],
+    }
+
+    scores, _usage = evaluate.run_evaluation(
+        build_service(model=model), [follow_up], runs=1, workers=1
+    )
+
+    reformulation = model.calls[0]
+    assert isinstance(reformulation[1], HumanMessage)
+    assert isinstance(reformulation[2], AIMessage)
+    assert reformulation[2].content == "An irregular heart rhythm."
+    assert scores[0].passed is True
+    assert scores[0].stage == "answer generation"
+    assert scores[0].source_hit is True
+
+
+def test_answer_that_declines_in_words_counts_as_not_enough_info():
+    service = build_service(model=FakeRunnable(message(INSUFFICIENT_CONTEXT)))
+    off_corpus = {"id": "off", "question": "How is asthma treated?", "expect": "not_enough_info"}
+
+    scores, _usage = evaluate.run_evaluation(service, [off_corpus], runs=1, workers=1)
+
+    assert scores[0].outcome == "answered"
+    assert scores[0].behaviour == "not_enough_info"
+    assert scores[0].passed is True
+
+
+def test_summary_reports_latency():
+    scores = [
+        evaluate.score_run(QUESTION, result(sources=["comprehensive-review.pdf"]), seconds=s)
+        for s in (1.0, 3.0, 2.0)
+    ]
+
+    summary = evaluate.summarize([QUESTION], scores)
+
+    assert summary["median_seconds"] == 2.0
+    assert summary["max_seconds"] == 3.0

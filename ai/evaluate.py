@@ -5,14 +5,12 @@ runs) and reports, per question and overall: whether the pipeline behaved as exp
 which stage decided, whether an expected source was retrieved, how many expected facts
 the answer contains, and whether the answer names the expected file.
 
-This calls OpenAI and reads Neon, so it is not part of pytest. Start with ``--list`` to
-check which questions can run against the current collection, then for example:
-
-    python evaluate.py --runs 3 --output eval/results-baseline.json
-    python evaluate.py --runs 3 --compare eval/results-baseline.json
-
-Telemetry exports are off by default so evaluation traffic stays out of the dashboards;
-set CARDIO_RAG_TELEMETRY_DISABLED=false to keep them.
+``--list`` checks which questions can run against the current collection
+``--runs`` selects how many runs per question (default 3)
+``--output`` specifies the output file for evaluation results
+``--compare`` compares the current run with a previous output file
+``--filters-only`` checks just the deterministic input filters (empty input, injection
+and scope regexes) against every question, with no OpenAI key or database.
 """
 
 import os
@@ -24,6 +22,8 @@ import contextvars  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import re  # noqa: E402
+import statistics  # noqa: E402
+import sys  # noqa: E402
 import time  # noqa: E402
 from collections import Counter  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
@@ -58,7 +58,9 @@ EMERGENCY_ADVICE = re.compile(
     r"|emergency (room|department)"
 )
 QUESTION_FIELDS = {"id", "question", "expect", "sources", "facts", "stage", "history",
-                   "known_issue", "tags"}
+                   "known_issue", "notes", "tags"}
+# Stages decided by the deterministic input filters, checked by --filters-only.
+FILTER_STAGES = ("input check", "injection filter", "scope filter")
 
 # Approximate USD per 1M input/output tokens, for the cost estimate only. Model names in
 # usage reports may carry a date suffix, so they are matched by prefix. Update as needed.
@@ -99,7 +101,13 @@ def load_questions(path: Path = QUESTIONS_PATH) -> list[dict]:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
-        question = json.loads(line)
+        try:
+            question = json.loads(line)
+        except json.JSONDecodeError:
+            # The decoder message can quote the line, so it is not repeated here.
+            raise ValueError(f"{path.name} line {number}: invalid JSON") from None
+        if not isinstance(question, dict):
+            raise ValueError(f"{path.name} line {number}: expected a JSON object")
         problems = []
         if set(question) - QUESTION_FIELDS:
             problems.append(f"unknown fields {sorted(set(question) - QUESTION_FIELDS)}")
@@ -112,8 +120,14 @@ def load_questions(path: Path = QUESTIONS_PATH) -> list[dict]:
         if question.get("expect") == "answer" and not question.get("sources"):
             problems.append("answer questions need expected sources")
         for entry in question.get("history", []):
-            if entry.get("role") not in {"user", "assistant"} or not entry.get("content"):
-                problems.append("history entries need a user/assistant role and content")
+            if (
+                not isinstance(entry, dict)
+                or entry.get("role") not in {"user", "assistant"}
+                or not isinstance(entry.get("content"), str)
+                or not entry["content"]
+            ):
+                problems.append("history entries need a user/assistant role and text content")
+                break
         if problems:
             raise ValueError(f"{path.name} line {number}: {'; '.join(problems)}")
         seen.add(question["id"])
@@ -128,6 +142,37 @@ def behaviour_of(result) -> str:
             return "not_enough_info"
         return "answer"
     return OUTCOME_BEHAVIOUR.get(result.outcome, result.outcome)
+
+
+def filter_decision(text: str) -> tuple[str, str] | None:
+    """(behaviour, stage) decided by the deterministic input filters, or None if they pass.
+
+    Mirrors the checks at the start of ``RagService.answer``, without the moderation call.
+    """
+    from rag_service import contains_prompt_injection, is_out_of_scope
+
+    if not text.strip():
+        return "empty", "input check"
+    if contains_prompt_injection(text):
+        return "refuse_filter", "injection filter"
+    if is_out_of_scope(text):
+        return "refuse_scope", "scope filter"
+    return None
+
+
+def check_filters(question: dict) -> bool | None:
+    """Check the input filters alone; None when the filters don't decide this question.
+
+    Questions expected at a filter stage must stop there. Questions that should get an
+    answer (or "not enough information") must pass the filters. Other refusals, emergencies
+    and moderation are decided by later steps, so the filters alone can't judge them.
+    """
+    decision = filter_decision(question["question"])
+    if question.get("stage") in FILTER_STAGES:
+        return decision == (question["expect"], question["stage"])
+    if question["expect"] in {"answer", "not_enough_info"}:
+        return decision is None
+    return None
 
 
 def matches(fact: str, text: str) -> bool:
@@ -218,6 +263,10 @@ def summarize(questions: list[dict], scores: list[RunScore]) -> dict:
         "source_hit_rate": mean(s.source_hit for s in tracked_scores),
         "fact_recall": mean(s.fact_recall for s in tracked_scores),
         "citation_rate": mean(s.cited for s in tracked_scores),
+        "median_seconds": (
+            round(statistics.median(s.seconds for s in scores), 2) if scores else None
+        ),
+        "max_seconds": max((s.seconds for s in scores), default=None),
         "known_issues_passing": sorted(
             qid for qid, q in per_question.items() if q["known_issue"] and q["pass_rate"]
         ),
@@ -317,6 +366,8 @@ def print_report(questions, summary, usage, cost, skipped) -> None:
     print(f"Expected source retrieved: {format_rate(summary['source_hit_rate'])}")
     print(f"Expected facts in answers: {format_rate(summary['fact_recall'])}")
     print(f"Answers naming the file:   {format_rate(summary['citation_rate'])}")
+    if summary["median_seconds"] is not None:
+        print(f"Seconds per run: median {summary['median_seconds']}, max {summary['max_seconds']}")
     if summary["known_issues_passing"]:
         print(f"Known issues now passing (check if fixed): {summary['known_issues_passing']}")
     if skipped:
@@ -361,6 +412,11 @@ def parse_args(argv=None):
         action="store_true",
         help="List questions and ingestion status without calling OpenAI.",
     )
+    parser.add_argument(
+        "--filters-only",
+        action="store_true",
+        help="Check only the deterministic input filters; no OpenAI or database calls.",
+    )
     args = parser.parse_args(argv)
     if args.runs < 1 or args.workers < 1:
         parser.error("--runs and --workers must be at least 1")
@@ -380,9 +436,40 @@ def select(questions, ids=None, tags=None):
     return questions
 
 
+def report_filters(questions: list[dict]) -> int:
+    """Print the --filters-only check; returns 1 if a question not marked known_issue fails."""
+    passed, failures, known_failing, known_passing, undecided = 0, [], [], [], 0
+    for question in questions:
+        result = check_filters(question)
+        if result is None:
+            undecided += 1
+        elif question.get("known_issue"):
+            (known_passing if result else known_failing).append(question["id"])
+        elif result:
+            passed += 1
+        else:
+            failures.append(question)
+
+    print(f"Checked {len(questions)} questions against the input filters "
+          "(no OpenAI or database calls).")
+    for question in failures:
+        decision = filter_decision(question["question"])
+        got = "passed the filters" if decision is None else f"{decision[0]} ({decision[1]})"
+        wanted = (f"{question['expect']} ({question['stage']})"
+                  if question.get("stage") in FILTER_STAGES else "pass the filters")
+        print(f"  FAIL {question['id']}: expected {wanted}, got {got}")
+    print(f"{passed} passed, {len(failures)} failed, {len(known_failing)} known issues still "
+          f"failing, {undecided} decided by later steps (not checked).")
+    if known_passing:
+        print(f"Known issues now passing the filter check (check if fixed): {known_passing}")
+    return 1 if failures else 0
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     questions = select(load_questions(args.questions), args.ids, args.tags)
+    if args.filters_only:
+        return report_filters(questions)
     available = ingested_sources()
     missing_files = sorted(
         {s for q in questions for s in q.get("sources", [])}
@@ -440,4 +527,8 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    finally:
+        if "rag_telemetry" in sys.modules:
+            sys.modules["rag_telemetry"].shutdown_telemetry()
