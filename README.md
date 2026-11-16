@@ -170,6 +170,37 @@ the async speedup. Adjust `--max-chunks`, `--batch-size`, `--concurrency`, or
 `--repeats` as needed. Each mode and repeat sends embedding requests to the
 configured API and may incur charges. Use the same settings when comparing runs.
 
+### Evaluating answer quality
+
+`ai/evaluate.py` runs the questions in `ai/eval/questions.jsonl` through the real
+pipeline several times each, because answers vary between runs, and reports per
+question and overall:
+
+- whether the result matched the expected behaviour (answered, not enough
+  information, scope or filter refusal, empty input, or emergency advice) and
+  which stage decided it;
+- whether an expected source file was among the retrieved documents;
+- the share of expected facts found in the answer, and whether the answer names
+  the expected file;
+- token use per model and an approximate cost.
+
+Questions marked `known_issue` track open bugs and are reported separately from
+the pass rate. Questions whose expected sources are not in the Neon collection
+are skipped, so ingest new PDFs first. From `ai/`:
+
+```bash
+python evaluate.py --list                                   # questions and ingestion status; no OpenAI calls
+python evaluate.py --runs 3 --output eval/results-baseline.json
+python evaluate.py --runs 3 --compare eval/results-baseline.json
+python evaluate.py --ids covid-heart,risk-scores --runs 1 --model gpt-4o-mini
+```
+
+Each run calls OpenAI and may incur charges; the main model defaults to
+`RAG_MODEL_NAME`. Telemetry exports are off during evaluation unless
+`CARDIO_RAG_TELEMETRY_DISABLED=false` is set. Result files (`eval/results*.json`)
+are ignored by Git. Each question lists its expected source files and facts; add
+questions in the same format.
+
 ### Neon full-text search schema
 
 The full-text retriever queries the generated `search_vector` column on
@@ -368,12 +399,14 @@ python -m pytest
 ruff check backend saferag shared tests
 ```
 
-The AI tests do not require a live Neon database. The retriever tests check query parameters,
-collection filtering, database-row mapping, and the no-results case. The ingestion tests check
-stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
-The RAG pipeline tests build `RagService` with fake models, retrievers, and moderation, and check
-the fail-closed and fallback behavior of each query step, conversation isolation, safety review
-outcomes, the `RAGInterface` adapter, and the CLI.
+The AI tests (`tests/ai/`, one file per module) do not require a live Neon database or OpenAI.
+The retriever tests check query parameters, collection filtering, database-row mapping, and the
+no-results case. The ingestion tests check stable chunk IDs, deduplication within one source,
+keeping identical text from separate sources, and concurrent embedding. The RAG pipeline tests
+build `RagService` with fake models, retrievers, and moderation (`tests/ai/rag_fakes.py`), and
+check the fail-closed and fallback behavior of each query step, conversation isolation, safety
+review outcomes, the `RAGInterface` adapter, and the CLI. The evaluation tests validate
+`ai/eval/questions.jsonl` and the scoring logic; they do not run the evaluation itself.
 At pytest session start, `conftest.py` checks Grafana's health endpoint and the configured OTLP
 Collector port. If either is unavailable, RAG telemetry exporters are disabled for that test run
 to prevent exporter retry noise. Pytest prints both availability results in its session header.

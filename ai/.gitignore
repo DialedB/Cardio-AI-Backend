@@ -24,3 +24,6 @@ db/
 *.sqlite
 *.sqlite3
 *.yml
+
+# RAG evaluation reports (written by evaluate.py --output)
+eval/results*.json
