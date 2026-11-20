@@ -369,8 +369,12 @@ ruff check backend saferag shared tests
 ```
 
 The AI tests do not require a live Neon database. The retriever tests check query parameters,
-collection filtering, database-row mapping, and the no-results case. The ingestion tests check
-stable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
+collection filtering, database-row mapping, and the no-results case.Backend PostgreSQL integration 
+tests require a dedicated test database configured through the `TEST_DATABASE_URL` environment variable.
+This variable must point to a separate test database and never falls back to `DATABASE_URL`. If it is not 
+configured,integration tests are skipped locally and fail in CI. Each integration test runs inside an isolated 
+transaction that is rolled back after the test finishes, preventing test data from persisting between tests. 
+The ingestion tests checkstable chunk IDs, deduplication within one source, and keeping identical text from separate sources.
 The RAG pipeline tests build `RagService` with fake models, retrievers, and moderation, and check
 the fail-closed and fallback behavior of each query step, conversation isolation, safety review
 outcomes, the `RAGInterface` adapter, and the CLI.
