@@ -258,7 +258,12 @@ class RagService:
         self._max_history_messages = max_history_messages
 
     @classmethod
-    def from_settings(cls) -> "RagService":
+    def from_settings(
+        cls,
+        *,
+        model_name: str = RAG_MODEL_NAME,
+        review_model_name: str = SAFETY_REVIEW_MODEL,
+    ) -> "RagService":
         """Build the OpenAI clients and connect to the shared Neon pgvector collection."""
         client_options = {"timeout": OPENAI_TIMEOUT_SECONDS, "max_retries": OPENAI_MAX_RETRIES}
         embedding_model = OpenAIEmbeddings(
@@ -266,8 +271,8 @@ class RagService:
             request_timeout=OPENAI_TIMEOUT_SECONDS,
             max_retries=OPENAI_MAX_RETRIES,
         )
-        model = ChatOpenAI(model=RAG_MODEL_NAME, **client_options)
-        review_model = ChatOpenAI(model=SAFETY_REVIEW_MODEL, temperature=0, **client_options)
+        model = ChatOpenAI(model=model_name, **client_options)
+        review_model = ChatOpenAI(model=review_model_name, temperature=0, **client_options)
 
         require_full_text_search_schema()
         vector_store = PGVector(
@@ -289,6 +294,8 @@ class RagService:
             reviewer=review_model.with_structured_output(ResponseReview, include_raw=True),
             moderation_client=OpenAI(**client_options),
             retriever=retriever,
+            model_name=model_name,
+            review_model_name=review_model_name,
         )
 
     def answer(self, question: str, history: Sequence[BaseMessage] = ()) -> AnswerResult:
